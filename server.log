@@ -1,0 +1,11 @@
+2025-08-03 13:01:20,246 - google.cloud.storage._opentelemetry_tracing - DEBUG - This service is instrumented using OpenTelemetry. OpenTelemetry or one of its components could not be imported; please add compatible versions of opentelemetry-api and opentelemetry-instrumentation packages in order to get Storage Tracing data.
+2025-08-03 13:01:20,333 - app.clients.elevenlabs_client - INFO - Cliente do Google Cloud Storage inicializado com sucesso.
+2025-08-03 13:01:20,415 - __main__ - INFO - 🚀 Iniciando Clone Digital do Endrigo v2.0
+ * Serving Flask app 'app'
+ * Debug mode: off
+2025-08-03 13:01:20,466 - werkzeug - INFO - [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://172.31.111.66:5000
+2025-08-03 13:01:20,467 - werkzeug - INFO - [33mPress CTRL+C to quit[0m
+2025-08-03 13:01:21,401 - werkzeug - INFO - 127.0.0.1 - - [03/Aug/2025 13:01:21] "[33mHEAD / HTTP/1.1[0m" 404 -

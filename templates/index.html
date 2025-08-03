@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Endrigo Digital - WhatsApp Bot</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.29.0/feather.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="container mt-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="text-center mb-5">
+                    <div class="mb-4">
+                        <i data-feather="message-circle" class="hero-icon"></i>
+                    </div>
+                    <h1 class="display-4 mb-3">Endrigo Digital</h1>
+                    <p class="lead text-muted">WhatsApp Bot com IA - Transcrição de Áudio e Respostas Inteligentes</p>
+                </div>
+
+                <div class="card">
+                    <div class="card-body">
+                        <h2 class="card-title h4 mb-4">
+                            <i data-feather="check-circle" class="me-2"></i>
+                            Status do Serviço
+                        </h2>
+                        
+                        <div class="status-indicator mb-4">
+                            <div class="d-flex align-items-center">
+                                <div class="status-dot bg-success me-3"></div>
+                                <div>
+                                    <h5 class="mb-1">Webhook Ativo</h5>
+                                    <p class="text-muted mb-0">O bot está funcionando e pronto para receber mensagens</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row g-4">
+                            <div class="col-md-6">
+                                <div class="feature-card">
+                                    <div class="feature-icon">
+                                        <i data-feather="mic"></i>
+                                    </div>
+                                    <h6>Transcrição de Áudio</h6>
+                                    <p class="text-muted small">OpenAI Whisper</p>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="feature-card">
+                                    <div class="feature-icon">
+                                        <i data-feather="brain"></i>
+                                    </div>
+                                    <h6>Respostas Inteligentes</h6>
+                                    <p class="text-muted small">GPT-4o Assistant</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card mt-4">
+                    <div class="card-body">
+                        <h3 class="card-title h5 mb-3">
+                            <i data-feather="smartphone" class="me-2"></i>
+                            Como Usar
+                        </h3>
+                        <ol class="list-group list-group-numbered list-group-flush">
+                            <li class="list-group-item d-flex justify-content-between align-items-start">
+                                <div class="ms-2 me-auto">
+                                    <div class="fw-bold">Configure o Webhook no Twilio</div>
+                                    Use esta URL como webhook: <code id="webhook-url"></code>
+                                </div>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-start">
+                                <div class="ms-2 me-auto">
+                                    <div class="fw-bold">Envie Mensagens</div>
+                                    Envie texto ou áudio via WhatsApp para o número do Twilio
+                                </div>
+                            </li>
+                            <li class="list-group-item d-flex justify-content-between align-items-start">
+                                <div class="ms-2 me-auto">
+                                    <div class="fw-bold">Receba Respostas</div>
+                                    O Endrigo Digital responderá automaticamente
+                                </div>
+                            </li>
+                        </ol>
+                    </div>
+                </div>
+
+                <div class="text-center mt-4">
+                    <p class="text-muted">
+                        <i data-feather="shield" class="me-1"></i>
+                        Deployed on Replit - Ready for Production
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/feather-icons/4.29.0/feather.min.js"></script>
+    <script>
+        // Initialize Feather icons
+        feather.replace();
+        
+        // Set webhook URL
+        document.getElementById('webhook-url').textContent = window.location.origin + '/webhook';
+        
+        // Health check
+        fetch('/health')
+            .then(response => response.json())
+            .then(data => {
+                console.log('Health check:', data);
+            })
+            .catch(error => {
+                console.error('Health check failed:', error);
+            });
+    </script>
+</body>
+</html>
