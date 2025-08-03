@@ -1,0 +1,12 @@
+[2025-08-03 13:46:04,675] [INFO] [app.clients.elevenlabs_client]: Cliente do Google Cloud Storage inicializado com sucesso.
+ * Serving Flask app 'app'
+ * Debug mode: off
+[2025-08-03 13:46:04,762] [INFO] [werkzeug]: [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8080
+ * Running on http://172.31.111.66:8080
+[2025-08-03 13:46:04,762] [INFO] [werkzeug]: [33mPress CTRL+C to quit[0m
+[2025-08-03 13:46:07,975] [INFO] [app.routes]: [WEBHOOK] SID=SMtestv10, De=whatsapp: 5511999999999, WaId=5511999999999
+[2025-08-03 13:46:07,976] [INFO] [app.services]: [HANDLE] Iniciando para sessão=wa:5511999999999
+[2025-08-03 13:46:07,977] [INFO] [werkzeug]: 127.0.0.1 - - [03/Aug/2025 13:46:07] "POST /webhook/whatsapp HTTP/1.1" 200 -
+[2025-08-03 13:46:07,978] [INFO] [app.clients.openai_client]: [ORQUESTRADOR INICIADO] Sessão=wa:5511999999999, Input=Teste sistema v1.0...
