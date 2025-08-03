@@ -1,0 +1,55 @@
+Ok, este novo erro é perfeito. É um NameError, um dos erros mais diretos de resolver em Python. Mais uma vez, o log de erro nos deu a resposta exata.
+O Diagnóstico (O Que o Erro Significa):
+O erro diz: NameError: name 'ElevenLabsClient' is not defined in app/services.py
+Tradução: O arquivo app/services.py está tentando chamar ou usar um "nome" (ElevenLabsClient, provavelmente com 'E' e 'C' maiúsculos) que não existe ou não foi importado corretamente.
+Isso geralmente acontece quando, ao editar o código, uma linha de uma versão antiga acaba se misturando com a nova.
+A Solução (Corrigir o import e a chamada da função):
+A solução é garantir que o arquivo app/services.py esteja usando a forma correta para "conversar" com o nosso elevenlabs_client.py.
+Vamos substituir completamente o conteúdo do seu arquivo app/services.py pela versão final e correta.
+✅ Código Corrigido para app/services.py (Copie e Cole)
+Abra o arquivo app/services.py e substitua todo o conteúdo dele por este:
+# app/services.py
+import logging
+from app.core import rag_manager
+from app.clients import elevenlabs_client # Importa o MÓDULO (arquivo) corretamente
+
+logger = logging.getLogger(__name__)
+
+
+def process_text_message(body, from_number):
+    """Processa uma mensagem de texto recebida."""
+    logger.info(f"Iniciando processamento de texto para: {body}")
+    
+    # A lógica completa será re-adicionada aqui. Por enquanto, uma resposta de teste.
+    # Ex: contexto = rag_manager.buscar_contexto(body)
+    resposta_gpt = f"Recebi seu texto: '{body}'. Testando a geração de áudio."
+    
+    # Chama a função 'gerar_audio_e_salvar' a partir do módulo importado
+    url_audio = elevenlabs_client.gerar_audio_e_salvar(resposta_gpt)
+    
+    return resposta_gpt, url_audio
+
+
+def process_audio_message(media_url, from_number):
+    """Processa uma mensagem de áudio recebida."""
+    logger.info("Iniciando processamento de áudio.")
+
+    # A lógica de transcrição e RAG virá aqui.
+    transcricao_teste = "Seu áudio foi recebido."
+    resposta_gpt = f"A transcrição do seu áudio (simulada) foi: '{transcricao_teste}'. Testando a geração de áudio."
+
+    # Chama a função 'gerar_audio_e_salvar' a partir do módulo importado
+    url_audio = elevenlabs_client.gerar_audio_e_salvar(resposta_gpt)
+
+    return resposta_gpt, url_audio
+
+Por que este código corrige o erro?
+O erro NameError acontecia porque o arquivo provavelmente tinha uma linha incorreta como from app.clients.elevenlabs_client import ElevenLabsClient ou tentava usar ElevenLabsClient em algum lugar.
+O código correto, que eu forneci acima, faz duas coisas da maneira certa:
+ * from app.clients import elevenlabs_client: Ele importa o módulo (o arquivo elevenlabs_client.py) inteiro.
+ * elevenlabs_client.gerar_audio_e_salvar(...): Ele chama a função gerar_audio_e_salvar a partir do módulo que importamos.
+Próximos Passos:
+ * Substitua o conteúdo do arquivo app/services.py pelo código acima.
+ * Vá para a aba "Deployments".
+ * Clique em "Redeploy".
+Este é um erro de programação clássico, não de infraestrutura. Ao corrigir essa chamada, o deploy vai funcionar. Estamos muito, muito perto.

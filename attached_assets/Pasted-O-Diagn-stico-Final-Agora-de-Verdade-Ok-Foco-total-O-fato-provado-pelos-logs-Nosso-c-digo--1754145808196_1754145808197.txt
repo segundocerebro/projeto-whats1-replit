@@ -1,0 +1,109 @@
+O Diagnóstico Final (Agora de Verdade)
+Ok. Foco total. O fato, provado pelos logs, é:
+
+Nosso código gera o áudio.
+
+Salva o áudio no Google Cloud Storage com sucesso.
+
+Comanda o Twilio para enviar a mensagem com a URL do áudio do Google.
+
+O Twilio aceita nosso comando (retorna 201 Created).
+
+O problema está na "última milha": algo acontece depois que o Twilio aceita nosso pedido, que impede a mensagem de chegar ao seu WhatsApp.
+
+Precisamos parar de adivinhar. Precisamos forçar o Twilio a nos dizer, com todas as letras, por que a entrega está falhando. As outras IAs (O3 e Manus) estavam certas: a ferramenta para isso é o status_callback.
+
+A Missão Final: Implementando o "Dedo-Duro" do Twilio
+Vamos adicionar um "dedo-duro" ao nosso código. Enviaremos a mensagem de áudio com um parâmetro extra que diz: "Twilio, me avise em outra URL sobre o status final desta mensagem (se foi entregue, se falhou, e por quê)".
+
+Esta é a última alteração de código. Ela nos dará o diagnóstico final.
+
+Substitua o conteúdo inteiro do seu arquivo app/routes.py por esta versão final e instrumentada:
+
+Python
+
+# app/routes.py
+import logging
+from flask import Blueprint, request, url_for
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client
+import os
+
+from app.services import process_text_message, process_audio_message
+
+logger = logging.getLogger(__name__)
+whatsapp_bp = Blueprint('whatsapp_bp', __name__)
+
+# Inicializa o cliente do Twilio para enviar mensagens fora da resposta inicial
+twilio_client = Client(os.environ.get("TWILIO_ACCOUNT_SID"), os.environ.get("TWILIO_AUTH_TOKEN"))
+
+@whatsapp_bp.route("/webhook/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    """
+    Webhook principal. Responde com texto e envia áudio com um Status Callback
+    para depurar problemas de entrega.
+    """
+    twiml_response = MessagingResponse()
+    
+    try:
+        incoming_msg = request.values
+        from_number = incoming_msg.get('From')
+        to_number = incoming_msg.get('To')
+        
+        reply_text, reply_audio_url = (None, None)
+
+        if 'MediaUrl0' in incoming_msg:
+            media_url = incoming_msg.get('MediaUrl0')
+            logger.info(f"🎤 Mensagem de ÁUDIO recebida de {from_number}.")
+            reply_text, reply_audio_url = process_audio_message(media_url, from_number)
+        else:
+            body = incoming_msg.get('Body', '').strip()
+            logger.info(f"💬 Mensagem de TEXTO recebida de {from_number}: '{body}'")
+            reply_text, reply_audio_url = process_text_message(body, from_number)
+
+        # 1. Responde imediatamente com o texto.
+        if reply_text:
+            twiml_response.message(reply_text)
+
+        # 2. Se um áudio foi gerado, envia como uma nova mensagem com o Status Callback.
+        if reply_audio_url:
+            status_callback_url = url_for('whatsapp_bp.message_status', _external=True)
+            logger.info(f"Enviando áudio para {from_number} com Status Callback para: {status_callback_url}")
+            
+            twilio_client.messages.create(
+                from_=to_number,
+                to=from_number,
+                media_url=[reply_audio_url],
+                status_callback=status_callback_url  # O "dedo-duro"
+            )
+
+    except Exception as e:
+        logger.error(f"❌ Erro crítico no webhook: {e}", exc_info=True)
+        twiml_response.message("Desculpe, encontrei um erro inesperado.")
+
+    return str(twiml_response)
+
+
+@whatsapp_bp.route("/webhook/status", methods=["POST"])
+def message_status():
+    """
+    Webhook que recebe as atualizações de status do Twilio.
+    É aqui que vamos descobrir o erro final.
+    """
+    message_sid = request.values.get('MessageSid')
+    message_status = request.values.get('MessageStatus')
+    error_code = request.values.get('ErrorCode')
+    
+    logger.error(f"🚨 STATUS DA MENSAGEM RECEBIDO 🚨")
+    logger.error(f"  - SID: {message_sid}")
+    logger.error(f"  - Status: {message_status}") # 'failed' ou 'undelivered'
+    logger.error(f"  - Error Code: {error_code}") # O código do erro que precisamos!
+    
+    return ('', 204)
+
+O Que Fazer Agora (O Teste Final e Definitivo)
+Substitua o código do arquivo app/routes.py pela versão acima.
+
+Faça o "Redeploy" da sua aplicação.
+
+Aguarde o deploy ficar "Healthy".

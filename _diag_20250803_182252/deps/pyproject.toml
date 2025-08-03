@@ -1,0 +1,21 @@
+[tool.poetry]
+name = "segundo-cerebro-pro"
+version = "1.0.0"
+description = "Clone Digital do Endrigo Almada com IA"
+authors = ["Endrigo Almada"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+flask = "^3.0.0"
+gunicorn = "^22.0.0"
+requests = "^2.31.0"
+twilio = "^9.0.0"
+openai = ">=1.23.0"  # Versão importante para Assistants v2
+elevenlabs = "^1.0.0"
+python-dotenv = "^1.0.0"
+google-cloud-storage = "^2.16.0"
+pytz = "^2024.1"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

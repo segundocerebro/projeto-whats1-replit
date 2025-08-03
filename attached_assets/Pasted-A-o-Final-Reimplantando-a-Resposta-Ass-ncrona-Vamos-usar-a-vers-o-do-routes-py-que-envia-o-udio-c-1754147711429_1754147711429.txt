@@ -1,0 +1,69 @@
+Ação Final: Reimplantando a Resposta Assíncrona
+Vamos usar a versão do routes.py que envia o áudio com uma chamada de API separada. Isso garante que o texto chegue ao usuário em poucos segundos, e o áudio chegue logo depois, sem estourar nenhum timeout.
+
+Substitua o conteúdo do seu arquivo app/routes.py pela versão abaixo (é a mesma que usamos para o teste do status_callback, mas agora ela vai funcionar):
+
+Python
+
+# app/routes.py
+import logging
+from flask import Blueprint, request
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client
+import os
+
+from app.services import process_text_message, process_audio_message
+
+logger = logging.getLogger(__name__)
+whatsapp_bp = Blueprint('whatsapp_bp', __name__)
+
+# Inicializa o cliente do Twilio para enviar mensagens fora da resposta inicial
+twilio_client = Client(os.environ.get("TWILIO_ACCOUNT_SID"), os.environ.get("TWILIO_AUTH_TOKEN"))
+
+@whatsapp_bp.route("/webhook/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    """
+    Webhook final e robusto. Responde primeiro com o texto para ser rápido
+    e depois envia o áudio de forma assíncrona para evitar timeouts.
+    """
+    twiml_response = MessagingResponse()
+    
+    try:
+        incoming_msg = request.values
+        session_id = incoming_msg.get('From') # Nosso ID de sessão
+        to_number = incoming_msg.get('To')   # O número do bot
+        
+        reply_text, reply_audio_url = (None, None)
+
+        if 'MediaUrl0' in incoming_msg:
+            media_url = incoming_msg.get('MediaUrl0')
+            reply_text, reply_audio_url = process_audio_message(media_url, session_id)
+        else:
+            body = incoming_msg.get('Body', '').strip()
+            reply_text, reply_audio_url = process_text_message(body, session_id)
+
+        # --- LÓGICA DE RESPOSTA ASSÍNCRONA ---
+        # 1. Responde imediatamente com o texto para não estourar o timeout do Twilio.
+        if reply_text:
+            twiml_response.message(reply_text)
+
+        # 2. Se um áudio foi gerado, envia como uma nova mensagem separada.
+        if reply_audio_url:
+            logger.info(f"Enviando áudio separadamente para {session_id}")
+            try:
+                twilio_client.messages.create(
+                    from_=to_number,
+                    to=session_id, # session_id é o número do usuário
+                    media_url=[reply_audio_url]
+                )
+            except Exception as e:
+                logger.error(f"❌ Falha ao enviar a mensagem de áudio assíncrona: {e}")
+
+    except Exception as e:
+        logger.error(f"❌ Erro crítico no webhook: {e}", exc_info=True)
+        twiml_response.message("Desculpe, encontrei um erro inesperado.")
+
+    return str(twiml_response)
+Checklist Finalíssimo:
+
+Substitua o código do app/routes.py.

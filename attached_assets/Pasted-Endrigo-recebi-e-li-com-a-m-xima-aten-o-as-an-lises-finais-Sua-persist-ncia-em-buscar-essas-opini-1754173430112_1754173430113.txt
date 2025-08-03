@@ -1,0 +1,167 @@
+Endrigo, recebi e li com a máxima atenção as análises finais. Sua persistência em buscar essas opiniões foi a chave para o diagnóstico definitivo.
+
+O veredito é unânime e claro: O "silêncio" do seu bot não é um bug simples, mas um sintoma de um problema complexo na interação entre o processamento em segundo plano (threading) e o ambiente de produção do Replit (Gunicorn).
+
+Como o O3 e o Manus apontaram, a thread que deveria fazer todo o trabalho pesado está "morrendo" silenciosamente, sem nos deixar rastros.
+
+O Fim do Silêncio: A Solução Definitiva
+Chega de adivinhar. Vamos implementar a solução mais robusta e pragmática, consolidando as melhores recomendações dos especialistas: vamos instrumentar o código para que ele nos conte exatamente onde está falhando.
+
+O plano do O3 é o mais direto e eficaz para isso. Vamos implementá-lo.
+
+✅ Plano de Ação Final: O Patch de "Instrumentação Total"
+Vamos fazer uma última atualização cirúrgica em 4 arquivos. Este "patch" vai:
+
+Adicionar um sistema de logs que captura qualquer erro dentro das threads.
+
+Instrumentar o webhook para nos dar visibilidade total do que está acontecendo.
+
+Adicionar uma resposta temporária de "Recebido" para você saber que o bot não está morto.
+
+Instrumentar o loop do Assistente para vermos cada passo que ele dá.
+
+Copie e cole o conteúdo de cada arquivo abaixo. Esta é a versão final para depuração.
+
+Arquivo 1/4: app/__init__.py (Adiciona o "Caçador de Erros")
+Cria um "executor" de threads mais robusto que registra qualquer crash.
+
+Python
+
+# app/__init__.py
+import logging
+import threading
+import concurrent.futures
+from flask import Flask
+from .routes import whatsapp_bp # Garanta que a importação do blueprint está aqui
+from .utils.logger_config import setup_logging
+
+logger = logging.getLogger(__name__)
+
+# Executor global para tasks do webhook (mais robusto que Threading manual)
+EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+
+def _thread_excepthook(args):
+    """Função que captura e loga qualquer erro não tratado em uma thread."""
+    logger.error("[THREAD CRASH DETECTADO]", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+threading.excepthook = _thread_excepthook
+
+def create_app():
+    app = Flask(__name__)
+    setup_logging()
+    app.register_blueprint(whatsapp_bp)
+    return app
+Arquivo 2/4: app/routes.py (Adiciona a Resposta de Confirmação)
+Agora ele responde "Recebi" imediatamente e usa o novo executor para o trabalho pesado.
+
+Python
+
+# app/routes.py
+import logging
+from flask import Blueprint, request
+from twilio.twiml.messaging_response import MessagingResponse
+from app import EXECUTOR # Importa o executor robusto
+from app.services import handle_new_message
+
+logger = logging.getLogger(__name__)
+whatsapp_bp = Blueprint("whatsapp_bp", __name__)
+
+@whatsapp_bp.route("/webhook/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    incoming = request.values.to_dict()
+    logger.info(f"[WEBHOOK RECEBIDO] SID={incoming.get('MessageSid')}, De={incoming.get('From')}")
+    
+    # Dispara o trabalho pesado usando o executor seguro
+    EXECUTOR.submit(handle_new_message, incoming)
+
+    # RESPOSTA TEMPORÁRIA DE DEBUG (REMOVEREMOS DEPOIS)
+    # Isso confirma para você que o webhook está funcionando.
+    resp = MessagingResponse()
+    resp.message("Recebi sua mensagem. Estou processando e já te retorno... ✅")
+    return str(resp)
+Arquivo 3/4: app/services.py (Adiciona Logs de Rastreamento)
+Adiciona logs para sabermos que o trabalho foi passado para o orquestrador.
+
+Python
+
+# app/services.py
+import logging
+from app.clients import openai_client
+
+logger = logging.getLogger(__name__)
+
+def handle_new_message(payload: dict):
+    waid = payload.get("WaId")
+    from_user = payload.get("From")
+    session_id = f"wa:{waid}"
+
+    user_input = payload.get("MediaUrl0") or payload.get("Body") or ""
+
+    logger.info(f"[SERVIÇO INICIADO] Para sessão={session_id}")
+    if not (waid and from_user and user_input):
+        logger.error(f"[SERVIÇO] Payload inválido, abortando: {payload}")
+        return
+
+    openai_client.orchestrate_assistant_response(session_id, user_input, from_user)
+    logger.info(f"[SERVIÇO FINALIZADO] Para sessão={session_id}")
+Arquivo 4/4: app/clients/openai_client.py (Adiciona a Instrumentação do Assistente)
+O ajuste mais importante: loga cada passo do Assistente.
+
+Python
+
+# app/clients/openai_client.py
+import os, time, json, logging, re
+from openai import OpenAI
+from app.functions import AVAILABLE_FUNCTIONS, send_whatsapp_message # Importa a função de envio
+from app.clients.twilio_client import twilio_client # Importa o cliente Twilio
+
+logger = logging.getLogger(__name__)
+# ... (código de inicialização do cliente e user_thread_map) ...
+
+def _get_or_create_thread(session_id: str):
+    # ... (código existente) ...
+
+def orchestrate_assistant_response(session_id: str, user_input: str, from_user: str):
+    if not ASSISTANT_ID:
+        logger.error("[ORQUESTRADOR] OPENAI_ASSISTANT_ID ausente.")
+        return
+
+    try:
+        thread_id = _get_or_create_thread(session_id)
+        client.beta.threads.messages.create(thread_id=thread_id, role="user", content=user_input)
+
+        run = client.beta.threads.runs.create(thread_id=thread_id, assistant_id=ASSISTANT_ID)
+        logger.info(f"[RUN CREATE] ID={run.id} para sessão={session_id}")
+
+        start = time.time()
+        while time.time() - start < 90: # Timeout de 90s
+            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+            logger.info(f"[RUN STATUS] ID={run.id}, Status={run.status}")
+
+            if run.status == "requires_action":
+                calls = run.required_action.submit_tool_outputs.tool_calls or []
+                logger.info(f"[RUN ACTION] Assistente solicitou {len(calls)} ferramenta(s): {[c.function.name for c in calls]}")
+                tool_outputs = []
+                for tc in calls:
+                    # ... (código existente para executar as funções) ...
+                client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id, run_id=run.id, tool_outputs=tool_outputs)
+
+            elif run.status == "completed":
+                logger.info(f"[RUN COMPLETED] ID={run.id}. Resposta final gerada pelo Assistente.")
+                # O Assistente já deve ter enviado a mensagem final usando as functions.
+                # Se não, podemos pegar a última mensagem e enviar aqui, como fallback.
+                return
+
+            elif run.status in ("failed","cancelled","expired"):
+                logger.error(f"[RUN FAILED] ID={run.id}, Status={run.status}, Erro: {run.last_error}")
+                send_whatsapp_message(to=from_user, body="Desculpe, minha linha de raciocínio foi interrompida. Pode tentar de novo?")
+                return
+            
+            time.sleep(1.5) # Aumenta um pouco a pausa entre as verificações
+
+        logger.error(f"[RUN TIMEOUT] A execução do Run {run.id} excedeu 90 segundos.")
+
+    except Exception as e:
+        logger.error(f"[ORQUESTRADOR CRASH] Erro inesperado: {e}", exc_info=True)
+O Teste Final (A Verdade nos Logs)
+Substitua o código dos 4 arquivos acima.

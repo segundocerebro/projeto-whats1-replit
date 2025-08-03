@@ -1,0 +1,148 @@
+# main.py - Clone Digital do Endrigo no Replit (Versão Corrigida e Fluida)
+import logging
+import os
+import base64
+import requests
+import time
+import uuid
+import shutil
+from datetime import datetime
+from flask import Flask, request, send_from_directory
+from twilio.twiml.messaging_response import MessagingResponse
+from openai import OpenAI
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.middleware.proxy_fix import ProxyFix
+import websocket  # Para WebSocket da Realtime API
+
+# Logging
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+
+# Configurações
+app = Flask(__name__)
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL") or 'sqlite:///bot.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+db = SQLAlchemy(app)
+
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Modelos (assumindo models.py existe; adicione se não)
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    phone_number = db.Column(db.String(20), unique=True)
+    total_messages = db.Column(db.Integer, default=0)
+    last_message_date = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Conversation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    phone_number = db.Column(db.String(20))
+    user_message = db.Column(db.Text)
+    bot_response = db.Column(db.Text)
+    message_type = db.Column(db.String(10))
+    transcribed_text = db.Column(db.Text)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+with app.app_context():
+    db.create_all()
+
+# Classe para Realtime API (simplificada e funcional)
+class RealtimeClone:
+    def __init__(self):
+        self.ws = None
+        self.connect()
+
+    def connect(self):
+        url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01"
+        self.ws = websocket.WebSocket()
+        self.ws.connect(url, header={
+            "Authorization": f"Bearer {os.getenv('OPENAI_API_KEY')}",
+            "OpenAI-Beta": "realtime=v1"
+        })
+        self.configure_session()
+
+    def configure_session(self):
+        config = {
+            "type": "session.update",
+            "session": {
+                "modalities": ["text", "audio"],
+                "voice": "coral",
+                "instructions": """
+IDENTIDADE: Endrigo Almada, fundador de ecossistema publicitário em Birigui, SP, com 22 anos de experiência em marketing, IA, imobiliário e agronegócio.
+PERSONALIDADE v4: Calorosa, profissional, entusiasmada com tecnologia. Linguagem natural brasileira.
+ESTILO: Conciso, informativo, exemplos práticos. Mantenha continuidade.
+MEMÓRIA: Lembre conversas anteriores.
+                """,
+                "turn_detection": {"type": "server_vad", "threshold": 0.5, "silence_duration_ms": 500},
+                "temperature": 0.8
+            }
+        }
+        self.ws.send(json.dumps(config))
+
+    def process_audio(self, audio_data):
+        # Envia áudio base64 para Realtime
+        self.ws.send(json.dumps({"type": "input_audio_buffer.append", "audio": base64.b64encode(audio_data).decode()}))
+        self.ws.send(json.dumps({"type": "input_audio_buffer.commit"}))
+        self.ws.send(json.dumps({"type": "response.create"}))
+        
+        # Recebe resposta (simplificado; use loop para produção)
+        response = json.loads(self.ws.recv())
+        if response['type'] == 'response.audio':
+            return base64.b64decode(response['audio'])
+        return None
+
+# Webhook Principal (agora com Realtime)
+@app.route("/webhook/whatsapp", methods=['POST', 'GET'])
+def whatsapp_webhook():
+    if request.method == 'GET':
+        return "Webhook funcionando! ✅", 200
+
+    from_number = request.values.get('From', '').replace('whatsapp:', '')
+    body = request.values.get('Body', '').strip()
+    media_url = request.values.get('MediaUrl0', '')
+
+    user = User.query.filter_by(phone_number=from_number).first() or User(phone_number=from_number)
+    user.total_messages += 1
+    user.last_message_date = datetime.utcnow()
+    db.session.add(user)
+    db.session.commit()
+
+    if media_url:
+        # Download áudio com autenticação
+        twilio_sid = os.getenv('TWILIO_ACCOUNT_SID')
+        twilio_token = os.getenv('TWILIO_AUTH_TOKEN')
+        headers = {'Authorization': f'Basic {base64.b64encode(f"{twilio_sid}:{twilio_token}".encode()).decode()}'}
+        audio = requests.get(media_url, headers=headers).content
+
+        # Processa com Realtime API
+        realtime = RealtimeClone()
+        audio_response = realtime.process_audio(audio)
+
+        if audio_response:
+            # Salva áudio resposta
+            audio_id = uuid.uuid4().hex
+            audio_path = f"static/audio/{audio_id}.mp3"
+            os.makedirs("static/audio", exist_ok=True)
+            with open(audio_path, 'wb') as f:
+                f.write(audio_response)
+            public_url = f"{request.host_url}static/audio/{audio_id}.mp3"
+
+            resp = MessagingResponse()
+            msg = resp.message("Resposta em áudio processada!")
+            msg.media(public_url)
+            return str(resp)
+
+    # Fallback para texto
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "system", "content": "Você é Endrigo Almada... (use prompt completo da personalidade v4)"}, {"role": "user", "content": body}]
+    )
+    reply = response.choices[0].message.content
+
+    resp = MessagingResponse()
+    resp.message(reply)
+    return str(resp)
+
+# Rotas adicionais (mantenha as suas, adicione limpeza de áudio periodical)
+
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=8080)

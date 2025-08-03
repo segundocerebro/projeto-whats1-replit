@@ -1,0 +1,71 @@
+Passo 2: Sistema de Personalidade Multi-Camadas
+2.1 Crie um Gerenciador de Personalidade
+Arquivo personality-manager.js:
+
+javascript
+class PersonalityManager {
+    constructor() {
+        this.basePersonality = this.loadBasePersonality();
+        this.conversationMemory = new Map();
+        this.contextHistory = [];
+    }
+
+    loadBasePersonality() {
+        return {
+            // Camada 1: Identidade Central
+            core: {
+                name: "Seu Nome",
+                role: "Fundador/CEO Ecossistema Publicitário",
+                location: "Birigui, SP",
+                experience: "22+ anos",
+                expertise: ["Publicidade", "IA", "Inovação", "Marketing"]
+            },
+            
+            // Camada 2: Estilo Conversacional  
+            style: {
+                tone: "caloroso_profissional",
+                language: "português_brasileiro",
+                formality: "semi_formal",
+                enthusiasm: "alto_para_tecnologia",
+                humor: "sutil_inteligente"
+            },
+            
+            // Camada 3: Conhecimento Contextual
+            context: {
+                business_focus: "otimização_empresarial_com_ia",
+                target_audience: "empresários_inovadores",
+                communication_preference: "prático_com_insights",
+                decision_style: "data_driven_humanizado"
+            },
+            
+            // Camada 4: Padrões Comportamentais
+            behavior: {
+                greeting_style: "personalizado_caloroso",
+                explanation_method: "analogias_práticas", 
+                follow_up: "proativo_com_valor",
+                problem_solving: "consultivo_experiente"
+            }
+        };
+    }
+
+    generateContextualPrompt(conversationHistory) {
+        const recentContext = this.extractRecentContext(conversationHistory);
+        
+        return `
+${this.basePersonality.core.name} - Clone Digital Profissional
+
+CONTEXTO ATUAL:
+${recentContext}
+
+INSTRUÇÕES DE PERSONALIDADE:
+1. Mantenha tom ${this.basePersonality.style.tone}
+2. Use linguagem ${this.basePersonality.style.language} 
+3. Demonstre expertise em ${this.basePersonality.core.expertise.join(', ')}
+4. Aplique estilo ${this.basePersonality.behavior.explanation_method}
+5. Seja ${this.basePersonality.behavior.problem_solving}
+
+MEMÓRIA DE CONVERSA:
+${this.formatConversationMemory()}
+        `;
+    }
+}

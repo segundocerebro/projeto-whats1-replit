@@ -1,0 +1,203 @@
+Arquivos para o projeto no Replit
+1. main.py
+Este é o arquivo principal que contém o servidor Flask e as rotas de mensagens.
+Python
+Copy
+from flask import Flask, send_from_directory
+from flask_cors import CORS
+from src.models.user import db
+from src.routes.user import user_bp
+from src.routes.webhook import webhook_bp
+
+app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
+app.config['SECRET_KEY'] = 'asdf#FGSgvasgf5$WGT'
+
+# Habilitar CORS para todas as rotas
+CORS(app)
+
+# Registrar blueprints
+app.register_blueprint(user_bp, url_prefix='/api')
+app.register_blueprint(webhook_bp, url_prefix='/')
+
+# uncomment if you need to use database
+app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db.init_app(app)
+with app.app_context():
+    db.create_all()
+
+@app.route('/', defaults={'path': ''})
+@app.route('/<path:path>')
+def serve(path):
+    static_folder_path = app.static_folder
+    if static_folder_path is None:
+        return "Static folder not configured, 404"
+
+    if path != "" and os.path.exists(os.path.join(static_folder_path, path)):
+        return send_from_directory(static_folder_path, path)
+    else:
+        index_path = os.path.join(static_folder_path, 'index.html')
+        if os.path.exists(index_path):
+            return send_from_directory(static_folder_path, 'index.html')
+        else:
+            return "index.html not found", 404
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5001, debug=True)
+2. webhook.py
+Este arquivo contém a lógica para lidar com o WhatsApp via Twilio e OpenAI.
+Python
+Copy
+from flask import Blueprint, request, jsonify, send_file
+from twilio.twiml.messaging_response import MessagingResponse
+import requests
+import os
+import re
+import tempfile
+import uuid
+from datetime import datetime
+
+webhook_bp = Blueprint('webhook', __name__)
+
+# === CREDENCIAIS ===
+OPENAI_API_KEY = 'sk-kixhKYjRNrxDrwyRCQhctY'
+OPENAI_BASE_URL = 'https://api.manus.im/api/llm-proxy/v1'
+ELEVENLABS_API_KEY = 'sk_025765e5b20d3f79c1afdc18ed81929456fa02cd7561aa5c'
+ELEVENLABS_VOICE_ID = 'SuM1a4mUYXCmWfwWYCx0'
+
+# === WHISPER REAL ===
+def transcribe_audio_real(audio_url):
+    if not OPENAI_API_KEY:
+        return None
+    try:
+        audio = requests.get(audio_url, timeout=15)
+        if audio.status_code != 200 or len(audio.content) < 100:
+            return None
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.ogg')
+        tmp.write(audio.content)
+        tmp.close()
+        with open(tmp.name, 'rb') as f:
+            files = {'file': ('audio.ogg', f, 'audio/ogg')}
+            headers = {'Authorization': f'Bearer {OPENAI_API_KEY}'}
+            r = requests.post(
+                'https://api.openai.com/v1/audio/transcriptions',
+                headers=headers,
+                files=files,
+                data={'model': 'whisper-1', 'language': 'pt'},
+                timeout=30
+            )
+        os.unlink(tmp.name)
+        return r.json().get('text', '').strip() if r.status_code == 200 else None
+    except Exception:
+        return None
+
+# === ELEVENLABS ===
+def generate_audio(text, phone):
+    if not ELEVENLABS_API_KEY or not ELEVENLABS_VOICE_ID:
+        return None
+    try:
+        if len(text) > 300:
+            text = text[:300] + '...'
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+        headers = {
+            'Accept': 'audio/mpeg',
+            'Content-Type': 'application/json',
+            'xi-api-key': ELEVENLABS_API_KEY
+        }
+        data = {
+            'text': text,
+            'model_id': 'eleven_multilingual_v2',
+            'voice_settings': {'stability': 0.6, 'similarity_boost': 0.8}
+        }
+        r = requests.post(url, json=data, headers=headers, timeout=30)
+        if r.status_code == 200:
+            audio_id = str(uuid.uuid4())
+            audio_storage[audio_id] = {
+                'content': response.content,
+                'timestamp': datetime.now().isoformat(),
+                'phone_number': phone,
+                'text': text[:100] + '...' if len(text) > 100 else text
+            }
+            print(f"✅ Áudio gerado: {audio_id}")
+            return audio_id
+        else:
+            print(f"❌ Erro ElevenLabs: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        print(f"❌ Erro ao gerar áudio: {e}")
+        return None
+
+# === WEBHOOK ÚNICO ===
+@webhook_bp.route('/whatsapp', methods=['POST'])
+def whatsapp_webhook():
+    body = request.values.get('Body', '').strip()
+    media_url = request.values.get('MediaUrl0', '')
+    media_type = request.values.get('MediaContentType0', '')
+    phone = request.values.get('From', '')
+
+    if media_url and 'audio' in media_type:
+        transcribed = transcribe_audio_real(media_url)
+        if transcribed:
+            body = transcribed
+        else:
+            resp = MessagingResponse()
+            resp.message("🎤 Não consegui entender seu áudio. Tente por texto!")
+            return str(resp)
+
+    if not body:
+        resp = MessagingResponse()
+        return str(resp)
+
+    headers = {'Authorization': f'Bearer {OPENAI_API_KEY}', 'Content-Type': 'application/json'}
+    data = {
+        "model": "gpt-4.1-mini",
+        "messages": [
+            {"role": "system", "content": "Você é o Endrigo, especialista com 22+ anos em marketing imobiliário. Responda prático e amigável."},
+            {"role": "user", "content": body}
+        ],
+        "max_tokens": 400,
+        "temperature": 0.7
+    }
+    try:
+        r = requests.post('https://api.openai.com/v1/chat/completions', headers=headers, json=data, timeout=15)
+        reply = r.json()['choices'][0]['message']['content']
+    except Exception:
+        reply = "Olá! Sou o Endrigo. Estou com um probleminha técnico, mas já volto!"
+
+    resp = MessagingResponse()
+    resp.message(reply)
+    return str(resp)
+
+@webhook_bp.route('/status', methods=['GET'])
+def status():
+    return jsonify({'status': 'online', 'version': 'Endrigo-Final'})
+3. requirements.txt
+Arquivo de dependências do projeto.
+Copy
+Flask==2.3.3
+requests==2.31.0
+python-dotenv==1.0.0
+twilio==8.10.0
+flask-cors==4.0.0
+4. .env
+Template de variáveis de ambiente.
+Copy
+OPENAI_API_KEY=sk-sua-chave-openai
+ASSISTANT_ID=asst_WiV4yzIrP6w20UiamzwzXTH
+ELEVENLABS_API_KEY=sk-sua-chave-elevenlabs
+ELEVENLABS_VOICE_ID=SuM1a4mUYXCmWfwWYCx0
+TWILIO_ACCOUNT_SID=AC1da24e8010e15437523628afb5113fd
+TWILIO_AUTH_TOKEN=59ca9521135d1df937cf215cd043a511
+TWILIO_PHONE_NUMBER=+5518996615781
+5. README.md
+Arquivo README do projeto.
+Copy
+# Clone Digital do Endrigo – Replit
+
+Um clone digital do Endrigo Almada, especialista em marketing digital e inteligência artificial com mais de 22 anos de experiência no mercado imobiliário.
+
+### 🛠 **Visão Geral**
+
+Este projeto é um clone digital do Endrigo Almada, um profissional de marketing com expertise em marketing digital e inteligência artificial. Ele é capaz de lidar a consultas e responder a perguntas

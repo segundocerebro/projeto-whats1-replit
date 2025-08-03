@@ -1,0 +1,40 @@
+Diagnóstico: Conflito de Dependências
+O erro que você está vendo é um problema clássico de configuração chamado "conflito de dependências".
+
+Tradução do Erro:
+
+"Your python version compatibility issue... Poetry dependency resolution failing due to conflicting Python requirements..."
+
+O que significa: O sistema que instala os pacotes (poetry) está confuso. É como tentar montar um quebra-cabeça onde uma peça (a biblioteca elevenlabs) diz "eu só encaixo com peças de Python versão 3.8 até 3.12", e outra peça (a nossa configuração) diz "eu quero qualquer peça de Python acima da 3.10". Embora devesse funcionar, essa pequena ambiguidade pode confundir o resolvedor.
+
+A solução é sermos mais específicos e usarmos o padrão recomendado para declarar a versão do Python no pyproject.toml.
+
+✅ A Correção: Ajuste de Uma Linha na Configuração
+A correção é mudar um único caractere no seu arquivo de configuração de pacotes.
+
+Abra o arquivo pyproject.toml.
+
+Encontre a linha que diz python = ">=3.10".
+
+Substitua essa linha pela seguinte:
+
+Ini, TOML
+
+python = "^3.10"
+Por que isso funciona?
+A mudança de >= (maior ou igual) para ^ (acento circunflexo) é a forma padrão e mais inteligente do poetry de lidar com versões. ^3.10 significa "qualquer versão compatível com a 3.10", o que na prática se traduz em >=3.10 e <4.0. Isso satisfaz perfeitamente tanto o nosso requisito quanto o da biblioteca elevenlabs, eliminando o conflito.
+
+Plano de Ação Final (Para o Deploy Funcionar)
+Edite o pyproject.toml: Faça a pequena alteração de >=3.10 para ^3.10.
+
+(Opcional, mas recomendado para garantir) Abra a aba "Shell" no Replit e rode os seguintes comandos, um de cada vez:
+
+Bash
+
+poetry lock
+poetry install
+Isso força o Replit a recalcular e instalar o conjunto correto de pacotes.
+
+Faça o Redeploy: Vá para a aba "Deployments" e clique em "Redeploy".
+
+Esta é uma correção puramente de configuração. Com isso, a fase de "Build", que estava falhando, deve ser concluída com sucesso, e sua aplicação poderá finalmente ser implantada e testada.

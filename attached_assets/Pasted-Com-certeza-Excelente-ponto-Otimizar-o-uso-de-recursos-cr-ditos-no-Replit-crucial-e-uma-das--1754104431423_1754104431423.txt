@@ -1,0 +1,244 @@
+Com certeza. Excelente ponto. Otimizar o uso de recursos ("créditos" no Replit) é crucial e uma das principais vantagens de se reescrever o código de forma inteligente.
+O maior consumo de recursos em uma aplicação como a sua acontece em dois momentos:
+ * Inicialização (Memória): Carregar modelos grandes ou arquivos de conhecimento na memória RAM assim que o bot liga.
+ * Processamento (CPU): Lidar com múltiplas requisições simultâneas de forma ineficiente, fazendo com que o processador trabalhe mais do que o necessário.
+Vamos atacar esses dois pontos diretamente na nova arquitetura. Vou codar a estrutura que propusemos, já com as otimizações implementadas.
+Clone Digital v2.0 - Código Otimizado para Eficiência
+Aqui está o código completo para a nova estrutura. Copie e cole o conteúdo em cada arquivo correspondente no seu novo projeto Replit "forkado".
+1. Arquivo de Configuração (.replit)
+Este arquivo diz ao Replit como executar seu projeto. Vamos configurá-lo para usar o Gunicorn, um servidor de produção muito mais eficiente que o servidor padrão do Flask.
+# .replit
+language = "python3"
+entrypoint = "main.py"
+
+# OTIMIZAÇÃO: Usamos o Gunicorn, um servidor WSGI de produção.
+# Ele gerencia múltiplos processos para lidar com vários usuários ao mesmo tempo
+# sem sobrecarregar a CPU, especialmente ao esperar por APIs externas.
+[run]
+command = ["gunicorn", "--bind", "0.0.0.0:8080", "main:app"]
+
+[packager]
+[packager.features]
+packageSearch = true
+
+[[interpreter.regex]]
+language = "python3"
+pattern = '''
+    ^python(3(\.\d{1,2})?)?$
+    ^pypy(3(\.\d{1,2})?)?$
+    ^rye$
+    ^sh$
+    ^bash$
+'''
+
+2. Dependências (pyproject.toml)
+Lista de pacotes que precisamos instalar.
+# pyproject.toml
+[tool.poetry]
+name = "python-template"
+version = "0.1.0"
+description = ""
+authors = ["Your Name <you@example.com>"]
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+flask = "^3.0.0"
+gunicorn = "^22.0.0"
+requests = "^2.31.0"
+twilio = "^9.0.0"
+openai = "^1.14.0"
+elevenlabs = "^1.0.0"
+python-dotenv = "^1.0.0"
+psycopg2-binary = "^2.9.9" # Para PostgreSQL
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+3. Ponto de Entrada (main.py)
+Arquivo principal, super enxuto.
+# main.py
+from app import create_app
+
+app = create_app()
+
+if __name__ == "__main__":
+    # Este modo é apenas para desenvolvimento local, não para produção no Replit.
+    # O Replit usará o comando do Gunicorn definido no .replit.
+    app.run(host='0.0.0.0', port=8080)
+
+4. Fábrica da Aplicação (app/__init__.py)
+# app/__init__.py
+from flask import Flask
+from .routes import whatsapp_bp
+from .utils.logger_config import setup_logging
+
+def create_app():
+    app = Flask(__name__)
+    setup_logging()
+    
+    # Registra o blueprint com as rotas
+    app.register_blueprint(whatsapp_bp)
+    
+    return app
+
+5. Rotas (app/routes.py)
+Apenas recebe a requisição e delega. Leve e rápido.
+# app/routes.py
+import logging
+from flask import Blueprint, request
+from twilio.twiml.messaging_response import MessagingResponse
+from app.services import process_text_message, process_audio_message
+
+logger = logging.getLogger(__name__)
+whatsapp_bp = Blueprint('whatsapp_bp', __name__)
+
+@whatsapp_bp.route("/webhook/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    response = MessagingResponse()
+    
+    try:
+        incoming_msg = request.values
+        from_number = incoming_msg.get('From', 'Número Desconhecido')
+        
+        # ## OTIMIZAÇÃO ##
+        # A lógica de processamento foi movida para 'services'.
+        # A rota apenas direciona, mantendo o uso de CPU aqui no mínimo.
+        if 'MediaUrl0' in incoming_msg:
+            media_url = incoming_msg.get('MediaUrl0')
+            logger.info(f"🎤 Mensagem de ÁUDIO recebida de {from_number}.")
+            reply_text, reply_audio_url = process_audio_message(media_url, from_number)
+        else:
+            body = incoming_msg.get('Body', '').strip()
+            logger.info(f"💬 Mensagem de TEXTO recebida de {from_number}: '{body}'")
+            reply_text, reply_audio_url = process_text_message(body, from_number)
+
+        # Constrói a resposta para o Twilio
+        if reply_text:
+            response.message(reply_text)
+        if reply_audio_url:
+            # Futuramente, podemos adicionar o áudio aqui
+            # response.message().media(reply_audio_url)
+            pass
+
+    except Exception as e:
+        logger.error(f"❌ Erro crítico no webhook: {e}", exc_info=True)
+        response.message("Desculpe, encontrei um erro. Minha equipe de engenharia foi notificada.")
+
+    return str(response)
+
+6. Serviços (app/services.py)
+O orquestrador da nossa lógica.
+# app/services.py
+import logging
+from app.core import rag_manager
+
+logger = logging.getLogger(__name__)
+
+def process_text_message(body, from_number):
+    """Processa uma mensagem de texto recebida."""
+    logger.info("Iniciando processamento de texto.")
+    
+    # Validação inicial para o teste de 'Olá, mundo!'
+    if body.lower() == 'oi':
+        logger.info("Validação 'oi' passou. Retornando saudação.")
+        return "Olá! O novo sistema v2.0 está funcionando. O bug de cache foi resolvido!", None
+    
+    # Aqui entraria a lógica completa com RAG, OpenAI, etc.
+    # Exemplo:
+    # contexto = rag_manager.buscar_contexto(body)
+    # resposta_gpt = openai_client.gerar_resposta(body, contexto)
+    # url_audio = elevenlabs_client.gerar_audio(resposta_gpt)
+    
+    # Placeholder para a lógica completa
+    resposta_placeholder = "Recebi seu texto, mas a lógica completa ainda não foi implementada nesta versão."
+    return resposta_placeholder, None
+
+def process_audio_message(media_url, from_number):
+    """Processa uma mensagem de áudio recebida."""
+    logger.info("Iniciando processamento de áudio.")
+    
+    # Placeholder para a lógica completa de download, transcrição, etc.
+    resposta_placeholder = "Recebi seu áudio! A nova estrutura está pronta para processá-lo."
+    return resposta_placeholder, None
+
+7. Gerenciador do RAG (app/core/rag_manager.py)
+Aqui está a otimização mais importante para poupar memória.
+# app/core/rag_manager.py
+import logging
+import os
+
+logger = logging.getLogger(__name__)
+
+# ## OTIMIZAÇÃO DE MEMÓRIA (LAZY LOADING) ##
+# A base de conhecimento só será carregada na memória na PRIMEIRA vez que for usada.
+# Se o bot ficar ocioso, ele não consumirá RAM para guardar esses dados.
+_knowledge_base_data = None
+_KNOWLEDGE_FILE_PATH = "documents/biografia_endrigo_completa.txt"
+
+
+def _load_knowledge_base():
+    """Função interna para carregar o arquivo de texto na memória."""
+    global _knowledge_base_data
+    try:
+        logger.info(f"Carregando base de conhecimento do arquivo: {_KNOWLEDGE_FILE_PATH}")
+        # Certifique-se de que o diretório 'documents' e o arquivo existem.
+        if not os.path.exists(_KNOWLEDGE_FILE_PATH):
+            logger.warning(f"Arquivo de conhecimento não encontrado em {_KNOWLEDGE_FILE_PATH}. O RAG não funcionará.")
+            _knowledge_base_data = ""
+            return
+
+        with open(_KNOWLEDGE_FILE_PATH, 'r', encoding='utf-8') as f:
+            _knowledge_base_data = f.read()
+        logger.info(f"Base de conhecimento carregada com sucesso. ({len(_knowledge_base_data)} caracteres)")
+
+    except Exception as e:
+        logger.error(f"Falha ao carregar a base de conhecimento: {e}", exc_info=True)
+        _knowledge_base_data = "" # Evita tentar carregar de novo em caso de erro.
+
+
+def buscar_contexto(query_text):
+    """
+    Busca contexto relevante na base de conhecimento.
+    Usa o padrão Singleton/Lazy Loading para carregar os dados.
+    """
+    global _knowledge_base_data
+    
+    # ## OTIMIZAÇÃO ##
+    # A verificação acontece a cada chamada, mas o carregamento só na primeira.
+    if _knowledge_base_data is None:
+        _load_knowledge_base()
+
+    # Lógica de busca simples (pode ser sofisticada depois)
+    # Aqui, apenas retornamos uma parte do texto se a query for encontrada (exemplo)
+    if query_text.lower() in _knowledge_base_data.lower():
+        # Lógica de busca real seria aqui...
+        logger.info("Contexto encontrado para a query.")
+        return "Contexto relevante encontrado na biografia."
+    
+    logger.info("Nenhum contexto específico encontrado para a query.")
+    return ""
+
+
+8. Configuração de Logs (app/utils/logger_config.py)
+# app/utils/logger_config.py
+import logging
+import sys
+
+def setup_logging():
+    """Configura o sistema de logging para ser informativo."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        stream=sys.stdout
+    )
+
+Como Isso Poupa Créditos?
+ * Lazy Loading (Menos Memória): Em app/core/rag_manager.py, o arquivo de biografia só é lido do disco e armazenado na RAM na primeira vez que uma mensagem real (que não seja "oi") chega. Se o seu bot ficar ocioso por horas, ele não estará gastando memória (e, por consequência, créditos) para manter esses dados parados.
+ * Servidor de Produção (Menos CPU): Ao usar gunicorn (no arquivo .replit), seu aplicativo se torna muito mais eficiente em lidar com o "esperar". Quando seu código faz uma chamada para a API do OpenAI, ele fica esperando uma resposta. O Gunicorn consegue usar esse tempo de espera para processar outras requisições, em vez de ficar parado, bloqueado. Isso resulta em um uso de CPU muito menor sob carga.
+Próximos Passos:
+ * Crie os Arquivos: Crie toda essa estrutura de arquivos e pastas no seu novo Replit.
+ * Crie a Pasta e o Arquivo: Crie a pasta documents e, dentro dela, o arquivo biografia_endrigo_completa.txt. Pode colocar qualquer texto nele por enquanto.
+ * Adicione os "Secrets": Vá na seção "Secrets" do Replit e adicione suas chaves de API.
+ * Teste o Webhook: Configure o webhook do seu número de Twilio (após os 10 minutos de espera) para a URL deste novo Replit. Envie a mensagem "oi". Você deve receber a resposta: "Olá! O novo sistema v2.0 está funcionando. O bug de cache foi resolvido!".
+Isso validará que a nova estrutura e a conexão com o Twilio estão funcionando. A partir daí, preenchemos o resto da lógica (OpenAI, ElevenLabs) dentro deste esqueleto robusto e otimizado.

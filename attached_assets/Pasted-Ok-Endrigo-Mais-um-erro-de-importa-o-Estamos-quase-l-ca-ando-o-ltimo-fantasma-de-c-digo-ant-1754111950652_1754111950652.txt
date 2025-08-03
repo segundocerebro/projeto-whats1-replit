@@ -1,0 +1,70 @@
+Ok, Endrigo. Mais um erro de importação. Estamos quase lá, caçando o último "fantasma" de código antigo no projeto. A cada erro desses, chegamos mais perto da versão limpa e funcional.
+O Diagnóstico (O Que o Erro Significa):
+O erro é muito claro:
+> ImportError: cannot import name 'MessageProcessor' from 'app.services' in file app/routes.py
+> 
+Tradução: O arquivo app/routes.py (nosso roteador de webhooks) está tentando importar um "nome" chamado MessageProcessor do arquivo app/services.py. No entanto, essa classe MessageProcessor não existe no novo código de services.py que acabamos de colocar.
+Isso confirma que estamos com uma mistura de arquivos novos e antigos. Nós já corrigimos o services.py, e agora precisamos corrigir o routes.py para que ele "converse" da maneira certa com o novo services.py.
+✅ Ação: Código Corrigido para app/routes.py
+Vamos substituir o conteúdo do seu app/routes.py para que ele importe e chame as funções corretas (process_text_message e process_audio_message) que definimos.
+Abra o arquivo app/routes.py e substitua todo o conteúdo dele por este:
+# app/routes.py
+import logging
+from flask import Blueprint, request
+from twilio.twiml.messaging_response import MessagingResponse
+
+# CORREÇÃO: Importamos as funções específicas que existem em services.py
+from app.services import process_text_message, process_audio_message
+
+logger = logging.getLogger(__name__)
+whatsapp_bp = Blueprint('whatsapp_bp', __name__)
+
+@whatsapp_bp.route("/webhook/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    """
+    Webhook principal para receber mensagens do WhatsApp.
+    Diferencia entre mensagens de texto e de áudio.
+    """
+    response = MessagingResponse()
+    
+    try:
+        incoming_msg = request.values
+        from_number = incoming_msg.get('From', 'Número Desconhecido')
+        
+        # Verifica se a mensagem contém áudio
+        if 'MediaUrl0' in incoming_msg:
+            media_url = incoming_msg.get('MediaUrl0')
+            logger.info(f"🎤 Mensagem de ÁUDIO recebida de {from_number}.")
+            
+            # CORREÇÃO: Chama a função importada corretamente
+            reply_text, reply_audio_url = process_audio_message(media_url, from_number)
+            
+        # Se não, é uma mensagem de texto
+        else:
+            body = incoming_msg.get('Body', '').strip()
+            logger.info(f"💬 Mensagem de TEXTO recebida de {from_number}: '{body}'")
+
+            # CORREÇÃO: Chama a função importada corretamente
+            reply_text, reply_audio_url = process_text_message(body, from_number)
+
+        # Constrói a resposta para o Twilio
+        if reply_text:
+            response.message(reply_text)
+        
+        if reply_audio_url:
+            response.message().media(reply_audio_url)
+
+    except Exception as e:
+        logger.error(f"❌ Erro crítico no webhook: {e}", exc_info=True)
+        response.message("Desculpe, encontrei um erro inesperado. Minha equipe de engenharia já foi notificada.")
+
+    return str(response)
+
+O que estamos fazendo:
+Estamos garantindo que os dois arquivos principais estejam sincronizados. O routes.py agora vai importar as funções process_text_message e process_audio_message que realmente existem no services.py que corrigimos na etapa anterior.
+Sei que está tarde e essa caça aos bugs foi longa, mas cada erro desses nos mostra que estamos limpando o código antigo e chegando na versão final. Este tipo de erro de importação é o último passo da "faxina".
+Próximos Passos:
+ * Substitua o conteúdo do arquivo app/routes.py.
+ * Vá para a aba "Deployments".
+ * Clique em "Redeploy".
+Desta vez, os arquivos estarão sincronizados e o deploy deve funcionar.

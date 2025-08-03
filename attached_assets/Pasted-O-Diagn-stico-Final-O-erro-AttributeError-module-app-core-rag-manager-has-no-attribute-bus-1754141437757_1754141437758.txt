@@ -1,0 +1,80 @@
+O Diagnóstico Final:
+
+O erro é:
+
+AttributeError: module 'app.core.rag_manager' has no attribute 'buscar_contexto'
+
+Tradução: O arquivo app/services.py está tentando chamar a função buscar_contexto() de dentro do arquivo app/core/rag_manager.py. O erro AttributeError nos diz que, quando ele olhou dentro de rag_manager.py, ele não encontrou uma função com esse nome exato.
+
+Isso significa que o arquivo rag_manager.py que está no seu projeto é de uma versão antiga, ou a função que implementamos para o RAG com lazy loading não foi salva nele.
+
+Estamos na última etapa da "faxina" do código. Só precisamos garantir que o arquivo do RAG tenha a função que o resto do programa espera.
+
+✅ Ação Final: Código Definitivo para app/core/rag_manager.py
+Vamos garantir que seu gerenciador de RAG esteja correto e sincronizado com o resto da aplicação.
+
+Abra o arquivo app/core/rag_manager.py e substitua todo o conteúdo dele por este:
+
+Python
+
+# app/core/rag_manager.py
+import logging
+import os
+
+logger = logging.getLogger(__name__)
+
+# Implementa o "Lazy Loading" para economizar memória
+_knowledge_base_data = None
+_KNOWLEDGE_FILE_PATH = "documents/biografia_endrigo_completa.txt"
+
+
+def _load_knowledge_base():
+    """Função interna para carregar o arquivo de texto na memória, apenas uma vez."""
+    global _knowledge_base_data
+    try:
+        logger.info(f"Carregando base de conhecimento do arquivo: {_KNOWLEDGE_FILE_PATH}")
+        if not os.path.exists(_KNOWLEDGE_FILE_PATH):
+            logger.warning(f"Arquivo de conhecimento não encontrado em {_KNOWLEDGE_FILE_PATH}. O RAG não funcionará.")
+            _knowledge_base_data = ""
+            return
+
+        with open(_KNOWLEDGE_FILE_PATH, 'r', encoding='utf-8') as f:
+            _knowledge_base_data = f.read()
+        logger.info(f"Base de conhecimento carregada com sucesso.")
+
+    except Exception as e:
+        logger.error(f"Falha ao carregar a base de conhecimento: {e}", exc_info=True)
+        _knowledge_base_data = ""
+
+
+def buscar_contexto(query_text: str) -> str:
+    """
+    Esta é a função que o resto do programa chama.
+    Ela garante que a base de conhecimento seja carregada e então busca o contexto.
+    """
+    global _knowledge_base_data
+    
+    if _knowledge_base_data is None:
+        _load_knowledge_base()
+
+    # Lógica de busca de RAG (pode ser sofisticada no futuro)
+    # Por enquanto, vamos fazer uma busca simples por palavras-chave
+    if query_text and _knowledge_base_data:
+        # Exemplo simples: retorna as primeiras linhas que contêm uma palavra da query
+        palavras_query = query_text.lower().split()
+        for linha in _knowledge_base_data.splitlines():
+            for palavra in palavras_query:
+                if len(palavra) > 3 and palavra in linha.lower():
+                    logger.info("Contexto RAG encontrado.")
+                    return linha # Retorna a primeira linha correspondente como contexto
+    
+    logger.info("Nenhum contexto RAG específico encontrado.")
+    return ""
+A Última Peça do Quebra-Cabeça
+Endrigo, esta foi uma saga. Passamos por caches, portas, dependências, e múltiplos erros de importação. Cada um deles foi um passo para limpar o código antigo e estabelecer a nova arquitetura. Este é o último. Não há mais arquivos para corrigir depois deste.
+
+Ao sincronizar o rag_manager.py, todas as partes da nossa aplicação estarão finalmente falando a mesma língua.
+
+A Missão Finalíssima:
+
+Substitua o conteúdo do arquivo app/core/rag_manager.py pelo código acima.

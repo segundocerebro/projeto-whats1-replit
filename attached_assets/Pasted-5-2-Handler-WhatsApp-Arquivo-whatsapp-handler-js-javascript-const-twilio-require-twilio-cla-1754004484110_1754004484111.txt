@@ -1,0 +1,75 @@
+5.2 Handler WhatsApp
+Arquivo whatsapp-handler.js:
+
+javascript
+const twilio = require('twilio');
+
+class WhatsAppVoiceHandler {
+    constructor(realtimeClient, memorySystem) {
+        this.twilio = twilio(process.env.TWILIO_SID, process.env.TWILIO_TOKEN);
+        this.realtimeClient = realtimeClient;
+        this.memorySystem = memorySystem;
+    }
+
+    async handleIncomingVoice(audioBuffer, from) {
+        try {
+            // 1. Recupera contexto da memória
+            const context = this.memorySystem.getContextForPrompt();
+            
+            // 2. Injeta contexto no Realtime API
+            await this.realtimeClient.updateContext(context);
+            
+            // 3. Processa áudio via Realtime API
+            const response = await this.realtimeClient.processVoice(audioBuffer);
+            
+            // 4. Atualiza memória
+            this.memorySystem.processConversation(
+                "[Audio Message]", response.text
+            );
+            
+            // 5. Envia resposta por WhatsApp
+            await this.sendVoiceResponse(response.audio, from);
+            
+        } catch (error) {
+            console.error('Erro no processamento:', error);
+        }
+    }
+
+    async sendVoiceResponse(audioBuffer, to) {
+        // Upload áudio para Twilio e envia
+        const mediaUrl = await this.uploadAudioToTwilio(audioBuffer);
+        
+        await this.twilio.messages.create({
+            from: 'whatsapp:+14155238886', // Sandbox number
+            to: `whatsapp:${to}`,
+            mediaUrl: [mediaUrl]
+        });
+    }
+}
+Passo 6: Otimização de Latência
+6.1 Pipeline Streaming
+Configure processamento em paralelo:
+
+javascript
+class OptimizedPipeline {
+    constructor() {
+        this.streamingEnabled = true;
+        this.chunkSize = 1024; // bytes
+        this.maxLatency = 525; // ms target
+    }
+
+    async processWithStreaming(audioInput) {
+        const startTime = Date.now();
+        
+        // Processamento em chunks paralelos
+        const chunks = this.splitIntoChunks(audioInput);
+        const responses = await Promise.all(
+            chunks.map(chunk => this.processChunk(chunk))
+        );
+        
+        const totalLatency = Date.now() - startTime;
+        console.log(`Latência total: ${totalLatency}ms`);
+        
+        return this.combineResponses(responses);
+    }
+}

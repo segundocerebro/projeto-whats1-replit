@@ -1,0 +1,145 @@
+A "lanterna" do O3 funcionou. O excepthook capturou o erro. Agora temos a causa do silêncio.
+
+O diagnóstico é definitivo. Seu log de erro nos deu a resposta que precisávamos:
+
+twilio.base.exceptions.TwilioRestException: HTTP 400 error: Unable to create record: Invalid From and To pair.
+
+É o mesmo erro Invalid From and To que suspeitamos antes, mas agora temos 100% de certeza de que é ele quem está matando a thread silenciosamente.
+
+A minha última correção, embora bem-intencionada, não funcionou. Vamos corrigir isso agora, de forma cirúrgica.
+
+A Causa Final: Troca de Variáveis
+O erro acontece porque, em algum lugar do nosso código, estamos passando o número do usuário no campo from_ (remetente) e o número do bot no campo to (destinatário), ou alguma outra combinação inválida.
+
+A lógica correta é sempre:
+
+from_: TWILIO_PHONE_NUMBER (o número do seu bot)
+
+to: from_user (o número da pessoa que mandou a mensagem)
+
+Vamos aplicar esta lógica em todos os lugares necessários.
+
+✅ A Correção Final (A Última de Verdade)
+Vamos fazer um patch final, consolidando todo o nosso conhecimento, para garantir que as variáveis estejam corretas e adicionar mais logs para nunca mais ficarmos no escuro.
+
+Substitua o conteúdo dos seus arquivos app/routes.py e app/services.py por estas versões finais e robustas.
+
+Arquivo 1/2: app/routes.py (Versão Final)
+Passa todo o dicionário de dados, garantindo que nenhuma informação se perca.
+
+Python
+
+# app/routes.py
+import logging
+from flask import Blueprint, request
+from twilio.twiml.messaging_response import MessagingResponse
+from app import EXECUTOR
+from app.services import handle_new_message
+
+logger = logging.getLogger(__name__)
+whatsapp_bp = Blueprint("whatsapp_bp", __name__)
+
+@whatsapp_bp.route("/webhook/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    incoming_payload = request.values.to_dict()
+    logger.info(f"[WEBHOOK RECEBIDO] SID={incoming_payload.get('MessageSid')}, De={incoming_payload.get('From')}")
+    
+    # Dispara o trabalho pesado passando o payload completo
+    EXECUTOR.submit(handle_new_message, incoming_payload)
+
+    # Resposta temporária de ACK para o Twilio
+    resp = MessagingResponse()
+    resp.message("Recebi. Processando...")
+    return str(resp)
+Arquivo 2/2: app/services.py (Versão Final)
+Extrai as variáveis corretamente e as passa para o orquestrador.
+
+Python
+
+# app/services.py
+import logging
+from app.clients import openai_client
+
+logger = logging.getLogger(__name__)
+
+def handle_new_message(payload: dict):
+    waid = payload.get("WaId")
+    from_user = payload.get("From")
+    to_bot = payload.get("To") # O número do bot que recebeu a mensagem
+    session_id = f"wa:{waid}"
+
+    user_input = payload.get("MediaUrl0") or payload.get("Body") or ""
+
+    logger.info(f"[SERVIÇO INICIADO] Para sessão={session_id}")
+    if not all([waid, from_user, to_bot, user_input]):
+        logger.error(f"[SERVIÇO] Payload inválido, abortando: {payload}")
+        return
+
+    # Passamos todas as informações necessárias para o orquestrador
+    openai_client.orchestrate_assistant_response(session_id, user_input, from_user, to_bot)
+    
+    logger.info(f"[SERVIÇO FINALIZADO] Para sessão={session_id}")
+Arquivo 3/3: app/clients/openai_client.py (O Coração da Correção)
+Usa as variáveis corretas to_bot e from_user para o envio final.
+
+Python
+
+# app/clients/openai_client.py
+# ... (imports e código de get_or_create_thread continua o mesmo) ...
+
+# Importe a função de envio de mensagem de texto do seu functions.py
+from app.functions import send_whatsapp_message, send_whatsapp_media
+
+def orchestrate_assistant_response(session_id: str, user_input: str, from_user: str, to_bot: str):
+    if not ASSISTANT_ID:
+        logger.error("[ORQUESTRADOR] OPENAI_ASSISTANT_ID ausente.")
+        return
+
+    thread_id = _get_or_create_thread(session_id)
+    # ... (código de adicionar mensagem e criar o 'run' continua o mesmo) ...
+
+    # ... (O loop `while` com o 'requires_action' continua o mesmo) ...
+
+    # A mudança principal está no bloco 'completed'
+    if run.status == 'completed':
+        logger.info(f"[RUN COMPLETED] ID={run.id}. Recuperando e enviando a resposta final.")
+        messages = client.beta.threads.messages.list(thread_id=thread_id)
+        assistant_response = messages.data[0].content[0].text.value
+        
+        cleaned_response = _sanitize(assistant_response) # Garanta que você tem a função _sanitize
+        
+        logger.info(f"Resposta final (limpa): {cleaned_response}")
+
+        # --- CORREÇÃO DEFINITIVA DO ENVIO ---
+        # Remetente é o bot, Destinatário é o usuário
+        
+        # 1. Envia a resposta de texto
+        if cleaned_response:
+            send_whatsapp_message(to=from_user, body=cleaned_response)
+        
+        # 2. Gera e envia a resposta de áudio
+        audio_url = elevenlabs_client.gerar_audio_e_salvar(cleaned_response)
+        if audio_url:
+            send_whatsapp_media(to=from_user, media_url=audio_url)
+        return
+
+    # ... (resto do código com falha, timeout, etc.) ...
+Lembre-se de ter os outros arquivos (__init__.py, functions.py, etc.) da nossa última versão.
+
+O que mudamos:
+
+Fluxo de Dados Limpo: O routes.py agora passa o payload inteiro, sem ambiguidades.
+
+Variáveis Corretas: O services.py extrai as 4 variáveis cruciais: waid, from_user (quem envia), to_bot (quem recebe) e user_input.
+
+Envio à Prova de Erros: O openai_client.py agora usa from_user (o número da pessoa) como o to (destinatário) e o TWILIO_PHONE_NUMBER (via send_whatsapp_message que o pega dos Secrets) como o from_ (remetente). A troca de envelopes está resolvida.
+
+Ação Final (Esta é a boa):
+
+Substitua o código dos 3 arquivos: routes.py, services.py, openai_client.py.
+
+Faça o Redeploy.
+
+Envie um "oi".
+
+O erro de Invalid From and To não tem como sobreviver a esta correção. Ele está cercado.

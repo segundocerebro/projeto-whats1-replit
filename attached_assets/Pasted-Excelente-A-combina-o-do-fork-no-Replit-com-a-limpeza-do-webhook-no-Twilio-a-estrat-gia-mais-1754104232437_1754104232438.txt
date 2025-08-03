@@ -1,0 +1,44 @@
+Excelente! A combinação do "fork" no Replit com a "limpeza" do webhook no Twilio é a estratégia mais forte que poderíamos adotar.
+Aqui está o prompt para o novo projeto. Ele resume nossa jornada, o diagnóstico final e o plano de ação claro para construirmos a versão 2.0 do seu clone digital.
+Prompt para o Novo Projeto: Clone Digital v2.0 - Fundação Robusta
+Para: Novo Agente de IA
+De: Endrigo
+Data: 02/08/2025
+Assunto: Reconstrução e Refatoração do Projeto "Clone Digital do Endrigo" após Diagnóstico de Bug Crítico de Cache.
+1. Resumo Executivo e Contexto
+Estamos iniciando o desenvolvimento da v2.0 de um bot de WhatsApp com IA que atua como um clone digital de Endrigo Almada. A versão 1.0, desenvolvida no Replit, estava 80% funcional, com processamento de texto, sistema RAG e geração de voz via ElevenLabs operando corretamente.
+No entanto, um bug crítico e impeditivo bloqueava o projeto: todas as mensagens de áudio recebidas via WhatsApp retornavam uma mensagem de erro genérica ("🎯 Recebi seu áudio! Sistema Realtime API processando...").
+2. Diagnóstico Final do Bug (Causa Raiz Identificada)
+Após uma investigação exaustiva, que incluiu a reescrita completa do código e a limpeza de caches locais, concluímos que o bug não estava no código da aplicação, mas sim na infraestrutura de roteamento externa.
+A causa raiz é um cache persistente em nível de infraestrutura, originado pelo uso do mesmo número de telefone do Twilio em múltiplas plataformas de desenvolvimento (primeiro na plataforma "Manus", depois no "Replit"). A string de erro que recebíamos era, na verdade, um resquício da aplicação antiga na plataforma Manus, e as requisições de áudio nem sequer estavam chegando ao nosso código no Replit.
+Para resolver isso, realizamos duas ações cruciais:
+ * Fork do Projeto no Replit: Este novo projeto (endrigo-digital-1 ou similar) nos fornece um ambiente e uma URL completamente "virgens", sem histórico de cache.
+ * Reset do Webhook no Twilio: A configuração do webhook no painel do Twilio foi temporariamente apagada e será reconfigurada para apontar para a nova URL deste projeto, forçando a invalidação de qualquer rota antiga.
+3. A Solução: Refatoração para uma Arquitetura Robusta
+Agora que temos um ambiente limpo, nosso objetivo não é apenas copiar o código antigo, mas sim reconstruí-lo seguindo as melhores práticas para garantir que ele seja robusto, legível, escalável e à prova de futuros bugs complexos.
+O que devemos fazer (Plano de Ação):
+ * Implementar uma Arquitetura com Separação de Responsabilidades:
+   * Vamos abandonar o modelo de um único arquivo main.py.
+   * Criaremos uma estrutura de diretórios clara:
+     * config.py: Para carregar todas as variáveis de ambiente e configurações.
+     * app/routes.py: Para definir os endpoints do Flask (apenas o webhook /webhook/whatsapp).
+     * app/services.py: Para orquestrar a lógica de negócio (ex: processar_mensagem_de_texto, processar_mensagem_de_audio).
+     * app/clients/: Módulos dedicados para cada API externa (OpenAI, ElevenLabs, Twilio).
+     * app/core/: Para a lógica central do clone (gerenciador do RAG, gerenciador do banco de dados).
+ * Construir um Fluxo de Execução Resiliente:
+   * A rota principal em app/routes.py deve ter um bloco try...except geral.
+   * O objetivo é que o bot sempre retorne uma resposta ao usuário, mesmo que seja uma mensagem de erro controlada, em vez de travar ou ficar em silêncio.
+   * Implementar logging detalhado em cada etapa para facilitar futuros diagnósticos.
+ * Reescrever a Lógica de Forma Modular:
+   * Cada função deve ter uma única responsabilidade.
+   * Exemplo de fluxo para áudio:
+     * routes.py recebe a requisição e chama services.processar_mensagem_de_audio(media_url).
+     * services.py chama twilio_client.download_audio(media_url).
+     * services.py chama openai_client.transcribe_audio(caminho_do_audio).
+     * services.py chama core.rag_manager.buscar_contexto(transcricao).
+     * services.py chama openai_client.gerar_resposta(transcricao, contexto).
+     * services.py chama elevenlabs_client.gerar_audio(texto_da_resposta).
+     * services.py retorna o texto e a URL do áudio para routes.py.
+     * routes.py constrói e envia a resposta TwiML.
+4. Próximo Passo Imediato
+Nossa primeira tarefa é construir o esqueleto desta nova arquitetura e implementar a funcionalidade mais simples: receber uma mensagem de texto e responder com um "Olá, mundo!" para validar que o novo ambiente (Replit Fork + Webhook Resetado) está funcionando corretamente. Uma vez validado, implementaremos o restante da lógica (RAG, OpenAI, ElevenLabs) dentro da nova estrutura.

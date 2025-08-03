@@ -1,0 +1,133 @@
+A Correção Final e Definitiva
+Vamos centralizar a lógica de envio em um único lugar, garantindo que a normalização dos números seja feita da forma correta, sempre.
+
+Etapa 1: A Caixa de Ferramentas (app/functions.py)
+Vamos garantir que as funções de envio de mensagem nesta caixa de ferramentas estejam perfeitas.
+
+Substitua o conteúdo do seu arquivo app/functions.py por este:
+
+Python
+
+# app/functions.py
+import logging
+import os
+import requests
+import json
+from app.clients import twilio_client as tc
+from app.clients import elevenlabs_client as ec
+from app.core import rag_manager as rag
+from app.utils.wa import normalize_wa
+
+logger = logging.getLogger(__name__)
+
+def send_whatsapp_message(to: str, body: str):
+    """Envia texto usando o normalizador para garantir o formato correto."""
+    try:
+        bot_number = normalize_wa(os.environ.get("TWILIO_PHONE_NUMBER", ""))
+        user_number = normalize_wa(to)
+        logger.info(f"FUNCTION: Enviando texto de {bot_number} para {user_number}")
+        msg = tc.twilio_client.messages.create(to=user_number, from_=bot_number, body=body)
+        return f"Mensagem de texto enviada com SID: {msg.sid}"
+    except Exception as e:
+        logger.error(f"Falha ao enviar mensagem de texto via função: {e}", exc_info=True)
+        return f"Erro ao enviar mensagem: {e}"
+
+def send_whatsapp_media(to: str, media_url: str):
+    """Envia mídia usando o normalizador para garantir o formato correto."""
+    try:
+        bot_number = normalize_wa(os.environ.get("TWILIO_PHONE_NUMBER", ""))
+        user_number = normalize_wa(to)
+        logger.info(f"FUNCTION: Enviando mídia de {bot_number} para {user_number}")
+        msg = tc.twilio_client.messages.create(to=user_number, from_=bot_number, media_url=[media_url])
+        return f"Mensagem de mídia enviada com SID: {msg.sid}"
+    except Exception as e:
+        logger.error(f"Falha ao enviar mídia via função: {e}", exc_info=True)
+        return f"Erro ao enviar mídia: {e}"
+
+# O resto das suas funções (transcribe_audio, rag_query, etc.) continua aqui...
+# ...
+
+# O dicionário de mapeamento
+AVAILABLE_FUNCTIONS = {
+    # ... outros mapeamentos
+    "send_whatsapp_message": send_whatsapp_message,
+    "send_whatsapp_media": send_whatsapp_media,
+}
+Garanta que você tenha o arquivo app/utils/wa.py que criamos anteriormente.
+
+Etapa 2: O Orquestrador (app/clients/openai_client.py)
+Agora, o orquestrador não vai mais enviar mensagens. Ele vai confiar 100% que o Assistente usará as Functions corretas que acabamos de ajustar. Isso simplifica o código e evita a duplicação da lógica.
+
+Substitua o conteúdo do seu app/clients/openai_client.py por este:
+
+Python
+
+# app/clients/openai_client.py
+import os, logging, time, json, re
+from openai import OpenAI
+from app.functions import AVAILABLE_FUNCTIONS
+
+logger = logging.getLogger(__name__)
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+ASSISTANT_ID = os.environ.get("OPENAI_ASSISTANT_ID")
+user_thread_map = {}
+
+def get_or_create_thread(session_id: str):
+    # ... (código existente)
+    
+def orchestrate_assistant_response(session_id: str, user_input: str, from_user: str):
+    # ... (código existente até o início do loop 'while')
+    try:
+        # ...
+        while time.time() - start < 90:
+            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+            logger.info(f"[RUN STATUS] ID={run.id}, Status={run.status}")
+
+            if run.status == 'requires_action':
+                tool_outputs = []
+                for tool_call in run.required_action.submit_tool_outputs.tool_calls:
+                    func_name = tool_call.function.name
+                    arguments = json.loads(tool_call.function.arguments)
+                    
+                    # Passa o 'to' (número do usuário) para as funções de envio
+                    if 'send_whatsapp' in func_name:
+                        arguments['to'] = from_user
+                    
+                    # Passa o 'session_id' para as funções que precisam dele
+                    if func_name in ['rag_query']:
+                        arguments['session_id'] = session_id
+                        
+                    function_to_call = AVAILABLE_FUNCTIONS.get(func_name)
+                    if function_to_call:
+                        logger.info(f"Executando função '{func_name}' com args: {arguments}")
+                        output = function_to_call(**arguments)
+                        tool_outputs.append({"tool_call_id": tool_call.id, "output": str(output)})
+                
+                client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id, run_id=run.id, tool_outputs=tool_outputs)
+
+            elif run.status == 'completed':
+                logger.info(f"[RUN COMPLETED] ID={run.id}. Orquestração finalizada.")
+                return # O trabalho acabou, as functions já enviaram as mensagens
+
+            elif run.status in ("failed","cancelled","expired"):
+                logger.error(f"[RUN FAILED] ID={run.id}, Status={run.status}, Erro: {run.last_error}")
+                return
+
+            time.sleep(1.5)
+        # ... (código de timeout)
+    # ... (código de exceção geral)
+O que mudamos:
+
+Responsabilidade Única: A lógica de envio de mensagens agora vive exclusivamente dentro do app/functions.py. O orquestrador não tenta mais enviar mensagens por conta própria.
+
+Normalização Centralizada: O functions.py usa nosso wa.py para garantir que qualquer mensagem enviada pelo assistente tenha os prefixos corretos, eliminando o erro 21910 de uma vez por todas.
+
+Fluxo Limpo: O Assistente pensa -> Pede para a function enviar a mensagem -> A function formata os números corretamente e envia. Não há mais ambiguidades.
+
+Ação Final:
+
+Substitua o código dos arquivos app/functions.py e app/clients/openai_client.py.
+
+Faça o Redeploy.
+
+Teste.

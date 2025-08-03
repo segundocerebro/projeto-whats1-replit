@@ -1,0 +1,72 @@
+# app/clients/elevenlabs_client.py
+import os
+import logging
+import uuid
+import requests
+import json
+from google.cloud import storage
+from io import BytesIO
+
+logger = logging.getLogger(__name__)
+
+# --- CONFIGURAÇÃO DO GOOGLE CLOUD STORAGE ---
+GCS_BUCKET_NAME = os.environ.get("GCS_BUCKET_NAME")
+GCP_CREDENTIALS_JSON = os.environ.get("GCP_CREDENTIALS")
+storage_client = None
+if GCP_CREDENTIALS_JSON and GCS_BUCKET_NAME:
+    try:
+        credentials_info = json.loads(GCP_CREDENTIALS_JSON)
+        storage_client = storage.Client.from_service_account_info(credentials_info)
+        logger.info("Cliente do Google Cloud Storage inicializado com sucesso.")
+    except Exception as e:
+        logger.error(f"❌ Falha ao inicializar o cliente GCS: {e}")
+# ---------------------------------------------
+
+def upload_audio_to_gcs(audio_content, file_name):
+    """Faz o upload do conteúdo de áudio para o GCS e o torna PÚBLICO."""
+    if not storage_client:
+        logger.error("Cliente GCS não inicializado. Upload cancelado.")
+        return None
+    try:
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(f"audio/{file_name}")
+
+        # Faz o upload do conteúdo em memória, especificando o tipo de conteúdo
+        blob.upload_from_file(BytesIO(audio_content), content_type="audio/mpeg")
+        
+        # --- A LINHA DE CÓDIGO QUE RESOLVE TUDO ---
+        # Torna o arquivo que acabamos de subir publicamente acessível para leitura.
+        blob.make_public()
+        # -----------------------------------------
+        
+        logger.info(f"Upload para GCS e tornado público. URL: {blob.public_url}")
+        return blob.public_url # Retorna a URL pública do blob
+    except Exception as e:
+        logger.error(f"❌ Erro no upload para o GCS: {e}", exc_info=True)
+        return None
+
+def gerar_audio_e_salvar(text):
+    """Gera áudio e faz o upload direto para o Google Cloud Storage."""
+    ELEVENLABS_API_KEY = os.environ.get("ELEVENLABS_API_KEY")
+    ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID")
+
+    if not ELEVENLABS_API_KEY or not ELEVENLABS_VOICE_ID:
+        logger.warning("Credenciais da ElevenLabs não configuradas.")
+        return None
+
+    tts_url = f"https://api.elevenlabs.io/v1/text-to-speech/{ELEVENLABS_VOICE_ID}"
+    headers = {"Accept": "audio/mpeg", "Content-Type": "application/json", "xi-api-key": ELEVENLABS_API_KEY}
+    data = {"text": text, "model_id": "eleven_multilingual_v2", "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}}
+
+    try:
+        response = requests.post(tts_url, json=data, headers=headers)
+        if response.status_code == 200:
+            file_name = f"response_{uuid.uuid4()}.mp3"
+            public_url = upload_audio_to_gcs(response.content, file_name)
+            return public_url
+        else:
+            logger.error(f"❌ API da ElevenLabs retornou erro: {response.status_code} {response.text}")
+            return None
+    except Exception as e:
+        logger.error(f"❌ Erro de conexão com a ElevenLabs: {e}", exc_info=True)
+        return None

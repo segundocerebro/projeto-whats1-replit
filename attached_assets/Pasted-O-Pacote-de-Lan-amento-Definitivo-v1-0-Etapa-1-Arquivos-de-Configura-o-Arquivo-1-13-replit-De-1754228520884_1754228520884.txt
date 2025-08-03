@@ -1,0 +1,384 @@
+O Pacote de Lançamento Definitivo (v1.0)
+Etapa 1: Arquivos de Configuração
+Arquivo 1/13: .replit
+(Define como o Replit deve executar o servidor de produção)
+
+Ini, TOML
+
+# .replit
+# Comando robusto que usa um worker aprimorado (gthread), aumenta o timeout e instala
+# as dependências a partir de um arquivo requirements.txt para garantir consistência.
+run = ["bash","-lc","python -m pip install -U -r requirements.txt && exec gunicorn -k gthread -w 1 --threads 8 --timeout 120 --log-level info --bind 0.0.0.0:$PORT 'app:create_app()'"]
+
+# Garante que temos o ffmpeg para o processamento de áudio
+[nix]
+channel = "stable-25_05"
+packages = ["ffmpeg"]
+Arquivo 2/13: pyproject.toml
+(Gerencia as dependências para o desenvolvimento)
+
+Ini, TOML
+
+[tool.poetry]
+name = "segundo-cerebro-pro"
+version = "1.0.0"
+description = "Clone Digital do Endrigo Almada com IA"
+authors = ["Endrigo Almada"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+flask = ">=3.0,<4.0"
+gunicorn = ">=21,<23"
+requests = ">=2.31,<3.0"
+twilio = ">=9.0,<10.0"
+openai = ">=1.30,<2.0"
+elevenlabs = ">=1.0,<2.0"
+python-dotenv = "^1.0.0"
+google-cloud-storage = ">=2.10,<3.0"
+pytz = "^2024.1"
+pandas = "^2.2.2" # Para o RAG otimizado
+numpy = "^1.26.4" # Para o RAG otimizado
+Arquivo 3/13: requirements.txt (NOVO ARQUIVO)
+(Crie este arquivo. Ele é usado pelo comando do .replit para o deploy)
+
+Plaintext
+
+# requirements.txt
+Flask>=3.0,<4.0
+gunicorn>=21,<23
+requests>=2.31,<3.0
+twilio>=9.0,<10.0
+openai>=1.30,<2.0
+elevenlabs>=1.0,<2.0
+python-dotenv>=1.0.0
+google-cloud-storage>=2.10,<3.0
+pytz>=2024.1
+pandas>=2.2.2
+numpy>=1.26.4
+Etapa 2: Arquivos de Utilidades
+Arquivo 4/13: app/utils/logger_config.py (NOVO ARQUIVO)
+(Cria e configura a pasta utils e este arquivo)
+
+Python
+
+# app/utils/logger_config.py
+import logging
+import sys
+
+def setup_logging(level=logging.INFO):
+    """Configura o sistema de logging para ser limpo e informativo."""
+    fmt = "[%(asctime)s] [%(levelname)s] [%(name)s]: %(message)s"
+    logging.basicConfig(level=level, format=fmt, stream=sys.stdout)
+Arquivo 5/13: app/utils/wa.py (NOVO ARQUIVO)
+(Crie este arquivo dentro de app/utils)
+
+Python
+
+# app/utils/wa.py
+import logging
+logger = logging.getLogger(__name__)
+
+WHATSAPP_PREFIX = "whatsapp:"
+
+def normalize_wa(number: str) -> str:
+    """Garante que um número de telefone tenha o prefixo 'whatsapp:'."""
+    if not number:
+        raise ValueError("O número de telefone não pode ser vazio.")
+    n = number.strip()
+    if not n.startswith(WHATSAPP_PREFIX):
+        n = WHATSAPP_PREFIX + n
+    return n
+Etapa 3: Código Principal da Aplicação
+Arquivo 6/13: app/__init__.py
+(O coração da inicialização da aplicação)
+
+Python
+
+# app/__init__.py
+import os
+import logging
+import threading
+import concurrent.futures
+from .utils.logger_config import setup_logging
+from flask import Flask
+from .routes import whatsapp_bp
+
+# Primeiro, configura o logging
+setup_logging()
+logger = logging.getLogger(__name__)
+
+# Fail-safe de boot: Corrige o sender do Twilio sem prefixo
+bn = os.environ.get("TWILIO_PHONE_NUMBER", "")
+if bn and not bn.startswith("whatsapp:"):
+    logger.warning("[BOOT] TWILIO_PHONE_NUMBER sem 'whatsapp:'. Corrigindo em runtime.")
+    os.environ["TWILIO_PHONE_NUMBER"] = "whatsapp:" + bn
+
+# Executor global para tarefas em segundo plano (robusto)
+EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+
+def _thread_excepthook(args):
+    """Captura e loga qualquer erro não tratado que aconteça em uma thread."""
+    logger.error("[THREAD CRASH DETECTADO]", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+
+threading.excepthook = _thread_excepthook
+
+def create_app():
+    """Cria e retorna a instância da aplicação Flask."""
+    app = Flask(__name__)
+    app.register_blueprint(whatsapp_bp)
+    
+    @app.get("/health")
+    def health():
+        """Endpoint de verificação de saúde para monitoramento."""
+        return "ok", 200
+        
+    return app
+Arquivo 7/13: main.py
+(O ponto de entrada que o Gunicorn usa)
+
+Python
+
+# main.py
+from app import create_app
+
+app = create_app()
+
+# Este bloco só é usado se você rodar 'python main.py' localmente.
+# No Replit, o Gunicorn é quem manda.
+if __name__ == "__main__":
+    app.run(host='0.0.0.0', port=8080)
+Arquivo 8/13: app/routes.py
+(Recebe o webhook, responde o ACK e dispara o trabalho pesado)
+
+Python
+
+# app/routes.py
+import logging
+from flask import Blueprint, request
+from twilio.twiml.messaging_response import MessagingResponse
+from app import EXECUTOR
+from app.services import handle_new_message
+
+logger = logging.getLogger(__name__)
+whatsapp_bp = Blueprint("whatsapp_bp", __name__)
+
+@whatsapp_bp.route("/webhook/whatsapp", methods=["POST"])
+def whatsapp_webhook():
+    incoming = request.values.to_dict()
+    logger.info(f"[WEBHOOK] SID={incoming.get('MessageSid')}, De={incoming.get('From')}, WaId={incoming.get('WaId')}")
+    
+    EXECUTOR.submit(handle_new_message, incoming)
+
+    # ACK TEMPORÁRIO DE DEBUG (removeremos na v1.1)
+    resp = MessagingResponse()
+    resp.message("Recebi. Processando...")
+    return str(resp)
+
+@whatsapp_bp.route("/webhook/status", methods=["POST"])
+def twilio_status():
+    """Recebe e loga o status final de entrega da mensagem (telemetria)."""
+    data = request.form.to_dict()
+    logger.info(
+        f"[STATUS DE ENTREGA] SID={data.get('MessageSid')}, "
+        f"Status={data.get('MessageStatus')}, "
+        f"Erro={data.get('ErrorCode')}"
+    )
+    return ("", 204)
+Arquivo 9/13: app/services.py
+(A ponte entre o webhook e a lógica de IA)
+
+Python
+
+# app/services.py
+import logging
+from app.clients import openai_client
+
+logger = logging.getLogger(__name__)
+
+def handle_new_message(payload: dict):
+    waid = payload.get("WaId")
+    from_user = payload.get("From")
+    to_bot = payload.get("To")
+    user_input = payload.get("MediaUrl0") or payload.get("Body") or ""
+    session_id = f"wa:{waid}" if waid else None
+
+    if not all([session_id, from_user, to_bot, user_input]):
+        logger.error(f"[HANDLE] Payload inválido, abortando: {payload}")
+        return
+
+    logger.info(f"[HANDLE] Iniciando para sessão={session_id}")
+    openai_client.orchestrate_assistant_response(session_id, user_input, from_user, to_bot)
+    logger.info(f"[HANDLE] Finalizado para sessão={session_id}")
+Etapa 4: A Caixa de Ferramentas e o Orquestrador de IA
+Arquivo 10/13: app/functions.py (NOVO ARQUIVO)
+(O código Python que executa as "ferramentas" do Assistente)
+
+Python
+
+# app/functions.py
+import logging, os, requests, json
+from app.clients import twilio_client as tc
+from app.clients import elevenlabs_client as ec
+from app.core import rag_manager as rag
+from app.utils.wa import normalize_wa
+
+logger = logging.getLogger(__name__)
+
+def transcribe_audio(media_url: str):
+    logger.info(f"FUNCTION: Transcrevendo áudio de {media_url}")
+    wav_path = tc.download_and_prepare_audio(media_url)
+    if not wav_path: return "Falha ao baixar o áudio."
+    return tc.transcrever_audio_com_whisper(wav_path)
+
+def tts_generate_and_store(text: str):
+    logger.info(f"FUNCTION: Gerando áudio: '{text[:30]}...'")
+    return ec.gerar_audio_e_salvar(text)
+
+def rag_query(session_id: str, query: str):
+    logger.info(f"FUNCTION: Consultando RAG para sessão {session_id}")
+    return rag.buscar_contexto(query)
+
+def send_whatsapp_message(to: str, body: str):
+    from_number = os.environ.get("TWILIO_PHONE_NUMBER")
+    logger.info(f"FUNCTION: Enviando texto para {to}")
+    try:
+        bot_num = normalize_wa(from_number)
+        user_num = normalize_wa(to)
+        msg = tc.twilio_client.messages.create(to=user_num, from_=bot_num, body=body)
+        return json.dumps({"status": "sucesso", "sid": msg.sid})
+    except Exception as e:
+        logger.error(f"Falha ao enviar texto via função: {e}")
+        return json.dumps({"status": "erro", "detalhe": str(e)})
+
+def send_whatsapp_media(to: str, media_url: str):
+    from_number = os.environ.get("TWILIO_PHONE_NUMBER")
+    logger.info(f"FUNCTION: Enviando mídia para {to}")
+    try:
+        bot_num = normalize_wa(from_number)
+        user_num = normalize_wa(to)
+        msg = tc.twilio_client.messages.create(to=user_num, from_=bot_num, media_url=[media_url])
+        return json.dumps({"status": "sucesso", "sid": msg.sid})
+    except Exception as e:
+        logger.error(f"Falha ao enviar mídia via função: {e}")
+        return json.dumps({"status": "erro", "detalhe": str(e)})
+
+def probe_media_url(url: str):
+    logger.info(f"FUNCTION: Verificando URL: {url}")
+    try:
+        r = requests.head(url, allow_redirects=True, timeout=5)
+        return json.dumps({ "ok": r.status_code == 200, "status": r.status_code })
+    except Exception as e:
+        return json.dumps({"ok": False, "error": str(e)})
+
+AVAILABLE_FUNCTIONS = {
+    "transcribe_audio": transcribe_audio, "rag_query": rag_query,
+    "tts_generate_and_store": tts_generate_and_store, "probe_media_url": probe_media_url,
+    "send_whatsapp_message": send_whatsapp_message, "send_whatsapp_media": send_whatsapp_media,
+}
+Arquivo 11/13: app/clients/openai_client.py (O Orquestrador)
+(O cérebro que gerencia a conversa com o Assistente e sua caixa de ferramentas)
+
+Python
+
+# app/clients/openai_client.py
+import os, time, json, logging, re
+from openai import OpenAI
+from app.functions import AVAILABLE_FUNCTIONS
+
+logger = logging.getLogger(__name__)
+
+client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+ASSISTANT_ID = os.environ.get("OPENAI_ASSISTANT_ID")
+user_thread_map = {} # Em produção, mova para um DB (Redis)
+
+def _sanitize(text: str) -> str:
+    if not text: return ""
+    text = re.sub(r'【.*?】', '', text)
+    return re.sub(r'\s{2,}', ' ', text).strip()
+
+def _get_or_create_thread(session_id: str):
+    tid = user_thread_map.get(session_id)
+    if tid: return tid
+    try:
+        thread = client.beta.threads.create(metadata={"session_id": session_id})
+        user_thread_map[session_id] = thread.id
+        logger.info(f"[THREAD] Criada thread id={thread.id} para sessão={session_id}")
+        return thread.id
+    except Exception as e:
+        logger.error(f"Erro ao criar thread: {e}", exc_info=True)
+        return None
+
+def orchestrate_assistant_response(session_id: str, user_input: str, from_user: str, to_bot: str):
+    if not ASSISTANT_ID:
+        logger.error("[RUN] OPENAI_ASSISTANT_ID ausente")
+        return
+
+    thread_id = _get_or_create_thread(session_id)
+    if not thread_id: return
+
+    try:
+        client.beta.threads.messages.create(thread_id=thread_id, role="user", content=user_input)
+        run = client.beta.threads.runs.create(thread_id=thread_id, assistant_id=ASSISTANT_ID)
+        logger.info(f"[RUN] Criado run id={run.id} para sessão={session_id}")
+
+        start = time.time()
+        while time.time() - start < 90:
+            run = client.beta.threads.runs.retrieve(thread_id=thread_id, run_id=run.id)
+            logger.info(f"[RUN] Status={run.status}")
+
+            if run.status == 'requires_action':
+                tool_calls = run.required_action.submit_tool_outputs.tool_calls or []
+                logger.info(f"[RUN ACTION] Solicitadas {len(tool_calls)} ferramentas: {[c.function.name for c in tool_calls]}")
+                tool_outputs = []
+                for tc in tool_calls:
+                    name = tc.function.name
+                    args = json.loads(tc.function.arguments or '{}')
+                    
+                    # Injeta automaticamente os parâmetros de sessão necessários
+                    if 'send_whatsapp' in name: args['to'] = from_user
+                    if name == 'rag_query': args['session_id'] = session_id
+                        
+                    try:
+                        fn = AVAILABLE_FUNCTIONS[name]
+                        output = fn(**args)
+                        tool_outputs.append({"tool_call_id": tc.id, "output": str(output)})
+                        logger.info(f"[FUNC:{name}] OK")
+                    except Exception as e:
+                        logger.error(f"[FUNC:{name}] CRASH | args={args} | err={e}", exc_info=True)
+                        tool_outputs.append({"tool_call_id": tc.id, "output": json.dumps({"error": str(e)})})
+                
+                client.beta.threads.runs.submit_tool_outputs(thread_id=thread_id, run_id=run.id, tool_outputs=tool_outputs)
+
+            elif run.status == 'completed':
+                logger.info(f"[RUN COMPLETED] ID={run.id}. Orquestração finalizada.")
+                # A resposta já foi enviada pelas functions. Não fazemos mais nada aqui.
+                return
+
+            elif run.status in ("failed", "cancelled", "expired"):
+                logger.error(f"[RUN FAILED] ID={run.id}, Status={run.status}, Erro: {run.last_error}")
+                # Enviar mensagem de fallback
+                from app.functions import send_whatsapp_message
+                send_whatsapp_message(to=from_user, body="Desculpe, minha linha de raciocínio foi interrompida. Pode tentar de novo?")
+                return
+            
+            time.sleep(1.5)
+        
+        logger.error(f"[RUN TIMEOUT] Run {run.id} excedeu 90 segundos.")
+
+    except Exception as e:
+        logger.error(f"[ORQUESTRADOR CRASH] Erro inesperado: {e}", exc_info=True)
+Etapa 5: Os Outros Clientes e o RAG
+Garanta que seus arquivos app/clients/twilio_client.py, app/clients/elevenlabs_client.py e app/core/rag_manager.py estejam com a última versão que te enviei anteriormente (com ffmpeg, upload para GCS com make_public e RAG semântico com pickle). Eles são as ferramentas que o functions.py utiliza.
+
+Checklist Final de Lançamento
+Configure os Secrets: Verifique se todos os 10 secrets estão corretos (OPENAI_API_KEY, TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, OPENAI_ASSISTANT_ID, GCS_BUCKET_NAME, GCP_CREDENTIALS, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID, PUBLIC_BASE_URL).
+
+Adicione as 6 Functions no seu painel da OpenAI.
+
+Substitua/Crie TODOS os arquivos de código acima.
+
+Crie o Cérebro: Na aba "Shell", rode poetry install e depois python indexer.py (ou create_embeddings.py).
+
+Lançamento Final: Vá para a aba "Deployments" e clique em "Redeploy".
+
+É isso, Endrigo. Este é o pacote completo, da configuração à inteligência. Não há mais peças faltando.

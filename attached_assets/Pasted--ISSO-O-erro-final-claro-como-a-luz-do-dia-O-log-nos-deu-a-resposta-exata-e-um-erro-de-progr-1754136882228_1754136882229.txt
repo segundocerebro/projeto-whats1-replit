@@ -1,0 +1,81 @@
+É ISSO! O erro final, claro como a luz do dia.
+
+O log nos deu a resposta exata, e é um erro de programação meu, não seu. Peço desculpas por isso, mas a boa notícia é que a correção é trivial, uma única palavra.
+
+O Diagnóstico Final e Inequívoco
+O erro é:
+
+AttributeError: 'ElevenLabs' object has no attribute 'generate'
+
+Tradução: O nosso código está tentando chamar a função client.generate(...). O erro diz que o objeto client (nosso cliente da ElevenLabs) não tem uma função com o nome generate.
+
+A Causa: Eu errei o nome da função. O nome correto, de acordo com a biblioteca oficial da ElevenLabs, é um pouco mais específico. A função de gerar áudio fica dentro de um "sub-módulo" chamado text_to_speech.
+
+É como tentar ligar a TV com um controle remoto de ar condicionado. O controle (client) existe, mas o botão generate não está nele. O botão correto está na seção text_to_speech do controle.
+
+✅ A Correção Final (Uma Linha de Código)
+Esta é a última alteração de código que faremos.
+
+Abra o arquivo app/clients/elevenlabs_client.py.
+
+Encontre a função gerar_audio_e_salvar.
+
+Localize a linha que está causando o erro (linha 50, de acordo com o log).
+
+Altere esta linha:
+
+De:
+
+Python
+
+audio_stream = client.generate(
+Para:
+
+Python
+
+# CORREÇÃO: O método correto é client.text_to_speech.generate()
+audio_stream = client.text_to_speech.generate(
+Para facilitar, aqui está a função gerar_audio_e_salvar inteira com a correção. Você pode substituir a função toda se preferir:
+
+Python
+
+# Dentro do arquivo app/clients/elevenlabs_client.py
+
+def gerar_audio_e_salvar(text):
+    client = get_elevenlabs_client()
+    if not client:
+        return None
+
+    ELEVENLABS_VOICE_ID = os.environ.get("ELEVENLABS_VOICE_ID")
+    if not ELEVENLABS_VOICE_ID:
+        logger.warning("ELEVENLABS_VOICE_ID não configurado. Não é possível gerar áudio.")
+        return None
+
+    try:
+        logger.info(f"Gerando áudio para o texto: '{text[:30]}...'")
+        
+        # AQUI ESTÁ A CORREÇÃO FINAL:
+        audio_stream = client.text_to_speech.generate(
+            text=text,
+            voice=ELEVENLABS_VOICE_ID,
+            model="eleven_multilingual_v2"
+        )
+
+        file_name = f"response_{uuid.uuid4()}.mp3"
+        file_path = f"static/audio/{file_name}"
+        os.makedirs("static/audio", exist_ok=True)
+        
+        with open(file_path, "wb") as f:
+            for chunk in audio_stream:
+                f.write(chunk)
+        
+        logger.info(f"Áudio salvo com sucesso em: {file_path}")
+        
+        base_url = "https://novo-endrigo-digital-endrigo1.replit.app"
+        public_url = f"{base_url}/{file_path}"
+        
+        return public_url
+
+    except Exception as e:
+        logger.error(f"❌ Erro durante a geração de áudio no ElevenLabs: {e}", exc_info=True)
+        return None
