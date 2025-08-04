@@ -26,5 +26,3 @@ USER appuser
 EXPOSE 8080
 ENV PORT 8080
 CMD ["gunicorn", "-w", "3", "--preload", "--bind", "0.0.0.0:$PORT", "main:app"]
-
-segundocerebro
