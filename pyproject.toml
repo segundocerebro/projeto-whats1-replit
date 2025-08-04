@@ -3,6 +3,9 @@ name = "segundo-cerebro-pro"
 version = "1.0.0"
 description = "Clone Digital do Endrigo Almada com IA"
 authors = ["Endrigo Almada"]
+# --- CORREÇÃO CRÍTICA ABAIXO ---
+# Esta linha diz ao sistema onde encontrar o código-fonte da sua aplicação.
+packages = [{include = "app"}]
 
 [tool.poetry.dependencies]
 python = "^3.10"
@@ -15,6 +18,10 @@ elevenlabs = "^1.0.0"
 python-dotenv = "^1.0.0"
 google-cloud-storage = "^2.16.0"
 pytz = "^2024.1"
+# Dependências que adicionamos para o RAG semântico
+pandas = "^2.2.2"
+numpy = "^1.26.4"
+
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
